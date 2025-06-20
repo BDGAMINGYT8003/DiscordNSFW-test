@@ -21,7 +21,7 @@ const generatePussyPayload = async () => {
              // Add a separator for spacing
             .addSeparatorComponents(
                 separator => separator
-                    .setSpacing(20) // A little space to breathe
+                    .setSpacing(2) // Large spacing
             )
             .addMediaGalleryComponents( // The main attraction!
                 mediaGallery => mediaGallery
@@ -68,7 +68,7 @@ const generatePussyPayload = async () => {
             )
              .addSeparatorComponents(
                 separator => separator
-                    .setSpacing(20)
+                    .setSpacing(2) // Large spacing
             )
             .addTextDisplayComponents(
                 textDisplay => textDisplay
