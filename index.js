@@ -4,10 +4,10 @@ const { Client, GatewayIntentBits, Collection, REST, Routes, MessageFlags, TextD
 const fs = require('fs');
 const path = require('path');
 
-// Hardcoded Bot Information - Just for you, darling.
-const TOKEN = 'OTg4NTMwMTk2NTUyNTExNTI4.G4hMpm.Tu7uihbR7GBlzaT73u2ogzWB19P3iqddJAHm50';
-const CLIENT_ID = '988530196552511528';
-const CLIENT_SECRET = 'xCJwPN8-ZYs60Bh1ZoO7VL0TE0rw6-9m'; // Though the secret isn't strictly needed for the bot's runtime, let's keep it together.
+// Bot Configuration from Environment Variables
+const TOKEN = process.env.DISCORD_BOT_TOKEN;
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '988530196552511528';
+const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET; // Optional for bot runtime
 
 // Bot Prefix - Because sometimes, you just want a quick command, right?
 const PREFIX = '!';
@@ -151,6 +151,12 @@ client.once('ready', () => {
     console.log(`Ready to serve! Logged in as ${client.user.tag}`);
     client.user.setActivity('with your desires...'); // A little flair.
 });
+
+// Validate token exists
+if (!TOKEN) {
+    console.error('DISCORD_BOT_TOKEN is not set in environment variables!');
+    process.exit(1);
+}
 
 // Log in to Discord - Let's do this.
 client.login(TOKEN);
