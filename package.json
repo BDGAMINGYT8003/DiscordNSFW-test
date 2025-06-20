@@ -10,6 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@types/node": "^22.13.11"
+    "@types/node": "^22.13.11",
+    "discord.js": "^14.20.0",
+    "nsfwhub": "^0.0.2"
   }
 }
