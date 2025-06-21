@@ -1,3 +1,4 @@
+
 // commands/pussy.js
 
 const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorSpacingSize, ComponentType, ChannelType } = require('discord.js');
@@ -155,10 +156,10 @@ const generatePussyPayload = (imageUrl, buttonDisabled = false, buttonLabel = '�
 // Helper to find and update the button in a component structure
 const findAndUpdateButton = (components, customId, updates) => {
     const container = components.find(c => c.type === ComponentType.Container);
-    if (!container) return false;
+    if (!container || !container.components) return false;
     const actionRow = container.components.find(c => c.type === ComponentType.ActionRow);
-    if (!actionRow) return false;
-    const button = actionRow.components.find(b => b.customId === customId);
+    if (!actionRow || !actionRow.components) return false;
+    const button = actionRow.components.find(b => b.custom_id === customId || b.customId === customId);
     if (button) {
         Object.assign(button, updates);
         return true; // Button found and updated
@@ -168,11 +169,11 @@ const findAndUpdateButton = (components, customId, updates) => {
 
 // Helper to extract image URL from a component structure
 const extractImageUrl = (components) => {
-     const container = components.find(c => c.type === ComponentType.Container);
-     if (!container) return null;
-     const mediaGallery = container.components.find(c => c.type === ComponentType.MediaGallery);
-     if (!mediaGallery || !mediaGallery.items || mediaGallery.items.length === 0) return null;
-     return mediaGallery.items[0].url;
+    const container = components.find(c => c.type === ComponentType.Container);
+    if (!container || !container.components) return null;
+    const mediaGallery = container.components.find(c => c.type === ComponentType.MediaGallery);
+    if (!mediaGallery || !mediaGallery.items || mediaGallery.items.length === 0) return null;
+    return mediaGallery.items[0].url;
 };
 
 
@@ -203,7 +204,7 @@ module.exports = {
                     components: [cooldownMessageContainer],
                     flags: MessageFlags.IsComponentsV2,
                 };
-                await interaction.reply({ ...cooldownPayload, ephemeral: true }); // Ephemeral reply
+                await interaction.reply({ ...cooldownPayload, flags: MessageFlags.Ephemeral }); // Use flags instead of ephemeral
                 return; // Stop execution
             }
         }
@@ -216,7 +217,7 @@ module.exports = {
         }, cooldownAmount);
 
         // Defer the reply AFTER cooldown check
-        await interaction.deferReply({ ephemeral: false });
+        await interaction.deferReply();
 
         try {
             const imageUrl = await pussyImagePreloader.getImage(); // Get image AFTER cooldown check
@@ -263,15 +264,14 @@ module.exports = {
                     );
                 const cooldownPayload = {
                     components: [cooldownMessageContainer],
-                    flags: MessageFlags.IsComponentsV2,
+                    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
                 };
                 // Send ephemeral message if possible (only in guild text channels)
                 if (message.channel.type === ChannelType.GuildText) {
-                     await message.reply({ ...cooldownPayload, ephemeral: true });
+                     await message.reply({ ...cooldownPayload });
                 } else {
-                     // Can't send ephemeral in DMs, send non-ephemeral or just ignore the reply entirely
-                     // Let's send a non-ephemeral text message as a fallback
-                     await message.reply({ content: `Hold on, sweetie! That command isn't ready yet. Try again in **${Math.ceil(timeLeft / 1000)}** seconds.`, ephemeral: false });
+                     // Can't send ephemeral in DMs, send non-ephemeral text message as a fallback
+                     await message.reply({ content: `Hold on, sweetie! That command isn't ready yet. Try again in **${Math.ceil(timeLeft / 1000)}** seconds.` });
                 }
                 return; // Stop execution
             }
@@ -323,9 +323,9 @@ module.exports = {
                     );
                 const cooldownPayload = {
                     components: [cooldownMessageContainer],
-                    flags: MessageFlags.IsComponentsV2,
+                    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
                 };
-                await interaction.reply({ ...cooldownPayload, ephemeral: true });
+                await interaction.reply({ ...cooldownPayload });
                 return; // Stop execution
             }
 
@@ -336,7 +336,7 @@ module.exports = {
 
             try {
                  // Get the current components and image URL to reuse during countdown
-                 const initialComponents = originalMessage.components; // Keep reference to original structure
+                 const initialComponents = JSON.parse(JSON.stringify(originalMessage.components)); // Deep clone to avoid reference issues
                  const currentImageUrl = extractImageUrl(initialComponents);
 
                  if (!currentImageUrl) {
@@ -369,7 +369,7 @@ module.exports = {
                 const newImageUrl = await pussyImagePreloader.getImage();
 
                 // Generate the final payload with the new image and re-enabled button
-                const finalPayload = generatePussyPayload(newImageUrl, false, '🔃 Reload', ButtonStyle.Primary); // Re-enable, default label/style
+                const finalPayload = generatePussyPayload(newImageUrl, false, '🔃 Reload', ButtonStyle.Success); // Re-enable, green style
 
                 // Edit the original message with the new image and enabled button
                  await originalMessage.edit(finalPayload); // Use originalMessage.edit after deferUpdate
@@ -390,12 +390,10 @@ module.exports = {
                     );
 
                  // Get the *original* components structure to preserve the button location
-                 // Use interaction.message.components again in case the originalMessage variable was somehow stale (unlikely after deferUpdate but safer)
-                 const componentsOnError = interaction.message.components;
-                 const updatedComponentsOnError = JSON.parse(JSON.stringify(componentsOnError)); // Clone
+                 const componentsOnError = JSON.parse(JSON.stringify(originalMessage.components));
 
                  // Find the button and re-enable it, change style/label for error state
-                 const buttonFound = findAndUpdateButton(updatedComponentsOnError, 'pussy_button_reload', {
+                 const buttonFound = findAndUpdateButton(componentsOnError, 'pussy_button_reload', {
                      disabled: false, // Try to make it clickable again
                      label: '🔃 Reload (Error)',
                      style: ButtonStyle.Danger // Red for error
@@ -403,16 +401,15 @@ module.exports = {
 
                  // Reconstruct the *entire* message components array: Error container + Original container (with potentially fixed button)
                  // Filter out any existing error containers first to prevent stacking
-                 const originalContentComponents = updatedComponentsOnError.filter(c =>
-                      !(c.type === ComponentType.Container && c.components.some(sub => sub.type === ComponentType.TextDisplay && sub.content.includes('### Error')))
+                 const originalContentComponents = componentsOnError.filter(c =>
+                      !(c.type === ComponentType.Container && c.components && c.components.some(sub => sub.type === ComponentType.TextDisplay && sub.content && sub.content.includes('### Error')))
                  );
                  const finalErrorComponents = [errorContainer, ...originalContentComponents];
-
 
                 await originalMessage.edit({ components: finalErrorComponents }).catch(editError => {
                     console.error('Failed final error edit on pussy reload:', editError);
                      // Fallback: send a new ephemeral error message if editing fails
-                    interaction.followUp({ content: 'An error occurred, and I couldn\'t update the message properly.', ephemeral: true }).catch(followupError => console.error('Failed fallback followup:', followupError));
+                    interaction.followUp({ content: 'An error occurred, and I couldn\'t update the message properly.', flags: MessageFlags.Ephemeral }).catch(followupError => console.error('Failed fallback followup:', followupError));
                 });
             }
         }
