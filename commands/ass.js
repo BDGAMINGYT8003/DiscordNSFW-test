@@ -57,25 +57,44 @@ class ImagePreloader {
     }
 
     async fetchWithValidation() {
-        const data = await nsfw.fetch(this.category);
-        
-        // Handle different possible API response structures
-        if (data && data.image && data.image.url) {
-            return { url: data.image.url };
-        } else if (data && data.url) {
-            return { url: data.url };
-        } else if (typeof data === 'string') {
-            return { url: data };
-        } else if (data && Array.isArray(data) && data.length > 0) {
-            const item = data[0];
-            if (item.image && item.image.url) {
-                return { url: item.image.url };
-            } else if (item.url) {
-                return { url: item.url };
+        // Try multiple fetch attempts if API returns undefined
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const data = await nsfw.fetch(this.category);
+            
+            // If data is null/undefined, try again
+            if (!data) {
+                if (attempt < 2) {
+                    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+                    continue;
+                } else {
+                    throw new Error('API returned null/undefined after multiple attempts');
+                }
+            }
+            
+            // Handle different possible API response structures
+            if (data.image && data.image.url) {
+                return { url: data.image.url };
+            } else if (data.url) {
+                return { url: data.url };
+            } else if (typeof data === 'string') {
+                return { url: data };
+            } else if (Array.isArray(data) && data.length > 0) {
+                const item = data[0];
+                if (item.image && item.image.url) {
+                    return { url: item.image.url };
+                } else if (item.url) {
+                    return { url: item.url };
+                }
+            }
+            
+            // If structure is unexpected but not null, try again
+            if (attempt < 2) {
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+                continue;
             }
         }
         
-        throw new Error(`Unexpected API response structure: ${JSON.stringify(data)}`);
+        throw new Error(`Unexpected API response structure after 3 attempts`);
     }
 
     async getImage() {
