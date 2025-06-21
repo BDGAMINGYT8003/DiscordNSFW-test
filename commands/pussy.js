@@ -1,94 +1,19 @@
-
 // commands/pussy.js
 
-const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder } = require('discord.js');
 const { NSFW } = require('nsfwhub'); // Import the NSFW library, just as you wanted.
-const fs = require('fs');
-const path = require('path');
 
 const nsfw = new NSFW(); // Create an instance.
 
-// Cooldown and cache management
-const cooldownFile = path.join(__dirname, '..', 'storage', 'cooldown.json');
-const cacheFile = path.join(__dirname, '..', 'storage', 'cache.json');
-
-const loadCooldowns = () => {
-    try {
-        if (fs.existsSync(cooldownFile)) {
-            return JSON.parse(fs.readFileSync(cooldownFile, 'utf8'));
-        }
-    } catch (error) {
-        console.error('Error loading cooldowns:', error);
-    }
-    return {};
-};
-
-const saveCooldowns = (cooldowns) => {
-    try {
-        fs.writeFileSync(cooldownFile, JSON.stringify(cooldowns, null, 2));
-    } catch (error) {
-        console.error('Error saving cooldowns:', error);
-    }
-};
-
-const loadCache = () => {
-    try {
-        if (fs.existsSync(cacheFile)) {
-            return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        }
-    } catch (error) {
-        console.error('Error loading cache:', error);
-    }
-    return {};
-};
-
-const saveCache = (cache) => {
-    try {
-        fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 2));
-    } catch (error) {
-        console.error('Error saving cache:', error);
-    }
-};
-
-const checkCooldown = (userId, commandName) => {
-    const cooldowns = loadCooldowns();
-    const userCooldowns = cooldowns[userId] || {};
-    const lastUsed = userCooldowns[commandName] || 0;
-    const now = Date.now();
-    const cooldownTime = 2000; // 2 seconds
-    
-    if (now - lastUsed < cooldownTime) {
-        const remaining = Math.ceil((cooldownTime - (now - lastUsed)) / 1000);
-        return { onCooldown: true, remaining };
-    }
-    
-    return { onCooldown: false };
-};
-
-const setCooldown = (userId, commandName) => {
-    const cooldowns = loadCooldowns();
-    if (!cooldowns[userId]) {
-        cooldowns[userId] = {};
-    }
-    cooldowns[userId][commandName] = Date.now();
-    saveCooldowns(cooldowns);
-};
-
-const createCooldownEmbed = (remaining) => {
-    return new EmbedBuilder()
-        .setColor(0xFF0000)
-        .setTitle('⏰ Slow down there, tiger!')
-        .setDescription(`You're moving too fast! Please wait ${remaining} more second${remaining > 1 ? 's' : ''} before using this command again.`)
-        .setTimestamp();
-};
-
-// Advanced Preloading Cache System
+// Ultra-Robust Advanced Preloading Cache System
 class ImagePreloader {
     constructor(category) {
         this.category = category;
         this.cache = [];
         this.isPreloading = false;
-        this.targetCacheSize = 2;
+        this.targetCacheSize = 3; // Increased cache size
+        this.maxRetries = 5; // Maximum retry attempts
+        this.retryDelay = 1000; // Base retry delay in ms
         this.preloadOnInit();
     }
 
@@ -97,8 +22,11 @@ class ImagePreloader {
         this.isPreloading = true;
         
         try {
-            const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
-            await Promise.all(preloadPromises);
+            // Use sequential loading with retry for initial preload
+            for (let i = 0; i < this.targetCacheSize; i++) {
+                await this.fetchAndCacheWithRetry();
+                await new Promise(resolve => setTimeout(resolve, 200)); // Prevent API spam
+            }
         } catch (error) {
             console.error(`Initial preload failed for ${this.category}:`, error);
         }
@@ -106,78 +34,119 @@ class ImagePreloader {
         this.isPreloading = false;
     }
 
-    async fetchAndCache() {
-        let retries = 3;
-        while (retries > 0) {
-            try {
-                const data = await nsfw.fetch(this.category);
-                if (data && data.image && data.image.url) {
-                    this.cache.push({
-                        url: data.image.url,
-                        timestamp: Date.now()
-                    });
-                    return; // Success, exit retry loop
-                }
-            } catch (error) {
-                console.error(`Cache fetch failed for ${this.category} (${retries} retries left):`, error);
+    async fetchAndCacheWithRetry(retryCount = 0) {
+        try {
+            const data = await this.fetchWithValidation();
+            if (data && data.url) {
+                this.cache.push({
+                    url: data.url,
+                    timestamp: Date.now()
+                });
+                return true;
             }
-            
-            retries--;
-            if (retries > 0) {
-                // Wait before retrying (exponential backoff)
-                await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
+            throw new Error('Invalid data structure received');
+        } catch (error) {
+            if (retryCount < this.maxRetries) {
+                console.warn(`Fetch attempt ${retryCount + 1} failed for ${this.category}, retrying...`);
+                await new Promise(resolve => setTimeout(resolve, this.retryDelay * (retryCount + 1)));
+                return this.fetchAndCacheWithRetry(retryCount + 1);
             }
+            console.error(`All retry attempts failed for ${this.category}:`, error);
+            return false;
         }
     }
 
-    async getImage() {
-        // If cache is empty, try to fetch with retries
-        if (this.cache.length === 0) {
-            let retries = 3;
-            while (retries > 0) {
-                try {
-                    const data = await nsfw.fetch(this.category);
-                    if (data && data.image && data.image.url) {
-                        this.triggerBackgroundPreload(); // Start preloading for next time
-                        return data.image.url;
-                    }
-                } catch (error) {
-                    console.error(`Direct fetch failed for ${this.category} (${retries} retries left):`, error);
-                }
-                
-                retries--;
-                if (retries > 0) {
-                    // Wait before retrying (exponential backoff)
-                    await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
+    async fetchWithValidation() {
+        // Try multiple fetch attempts if API returns undefined
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const data = await nsfw.fetch(this.category);
+            
+            // If data is null/undefined, try again
+            if (!data) {
+                if (attempt < 2) {
+                    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+                    continue;
+                } else {
+                    throw new Error('API returned null/undefined after multiple attempts');
                 }
             }
             
-            // If all retries failed, throw error
-            throw new Error(`Failed to fetch image after multiple attempts`);
+            // Handle different possible API response structures
+            if (data.image && data.image.url) {
+                return { url: data.image.url };
+            } else if (data.url) {
+                return { url: data.url };
+            } else if (typeof data === 'string') {
+                return { url: data };
+            } else if (Array.isArray(data) && data.length > 0) {
+                const item = data[0];
+                if (item.image && item.image.url) {
+                    return { url: item.image.url };
+                } else if (item.url) {
+                    return { url: item.url };
+                }
+            }
+            
+            // If structure is unexpected but not null, try again
+            if (attempt < 2) {
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+                continue;
+            }
+        }
+        
+        throw new Error(`Unexpected API response structure after 3 attempts`);
+    }
+
+    async getImage() {
+        // Try to get from cache first
+        if (this.cache.length > 0) {
+            const cachedImage = this.cache.shift();
+            this.triggerBackgroundPreload();
+            return cachedImage.url;
         }
 
-        // Get cached image
-        const cachedImage = this.cache.shift();
-        
-        // Immediately trigger background preload to maintain cache
-        this.triggerBackgroundPreload();
-        
-        return cachedImage.url;
+        // If cache is empty, fetch with retry mechanism
+        let retryCount = 0;
+        while (retryCount < this.maxRetries) {
+            try {
+                const data = await this.fetchWithValidation();
+                this.triggerBackgroundPreload(); // Start preloading for next time
+                return data.url;
+            } catch (error) {
+                retryCount++;
+                if (retryCount >= this.maxRetries) {
+                    throw new Error(`Failed to fetch image after ${this.maxRetries} attempts: ${error.message}`);
+                }
+                console.warn(`Fetch attempt ${retryCount} failed for ${this.category}, retrying...`);
+                await new Promise(resolve => setTimeout(resolve, this.retryDelay * retryCount));
+            }
+        }
     }
 
     triggerBackgroundPreload() {
         if (this.isPreloading) return;
         
-        // Preload in background without blocking
+        // Enhanced background preloading with better error handling
         setImmediate(async () => {
-            while (this.cache.length < this.targetCacheSize && !this.isPreloading) {
-                this.isPreloading = true;
-                await this.fetchAndCache();
-                this.isPreloading = false;
-                
-                // Small delay to prevent API spam
-                await new Promise(resolve => setTimeout(resolve, 100));
+            this.isPreloading = true;
+            
+            try {
+                while (this.cache.length < this.targetCacheSize) {
+                    const success = await this.fetchAndCacheWithRetry();
+                    if (!success) {
+                        // If fetching fails, wait longer before trying again
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        break; // Exit the loop to prevent infinite retries
+                    }
+                    
+                    // Small delay between successful fetches
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+            } catch (error) {
+                console.error(`Background preload error for ${this.category}:`, error);
             }
+            
+            this.isPreloading = false;
         });
     }
 }
@@ -186,16 +155,9 @@ class ImagePreloader {
 const imagePreloader = new ImagePreloader("pussy");
 
 // Shared function to generate the response payload using Components V2
-const generatePussyPayload = async (cachedUrl = null) => {
+const generatePussyPayload = async () => {
     try {
-        const imageUrl = cachedUrl || await imagePreloader.getImage(); // Ultra-fast preloaded image
-
-        // Cache the URL for reuse during cooldown
-        if (!cachedUrl) {
-            const cache = loadCache();
-            cache.lastPussyUrl = imageUrl;
-            saveCache(cache);
-        }
+        const imageUrl = await imagePreloader.getImage(); // Ultra-fast preloaded image
 
         // Let's wrap everything in a Container for that formal, embedded look.
         const container = new ContainerBuilder()
@@ -269,50 +231,6 @@ const generatePussyPayload = async (cachedUrl = null) => {
     }
 };
 
-// Function to update button with countdown
-const updateButtonCountdown = async (interaction, seconds, cachedUrl) => {
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFF007F)
-        .addTextDisplayComponents(
-            textDisplay => textDisplay
-                .setContent('### Behold! A gift from the depths.')
-        )
-        .addSeparatorComponents(
-            separator => separator
-                .setSpacing(2)
-        )
-        .addMediaGalleryComponents(
-            mediaGallery => mediaGallery
-                .addItems(
-                    mediaGalleryItem => mediaGalleryItem
-                        .setURL(cachedUrl)
-                        .setDescription('A delightful view.')
-                )
-        );
-
-    const reloadButton = new ButtonBuilder()
-        .setCustomId('pussy_button_reload')
-        .setLabel(`🔃 Reload (${seconds}s)`)
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(true);
-
-    const actionRow = new ActionRowBuilder()
-        .addComponents(reloadButton);
-
-    container.addActionRowComponents(actionRow);
-
-    const payload = {
-        components: [container],
-        flags: MessageFlags.IsComponentsV2,
-    };
-
-    try {
-        await interaction.editReply(payload);
-    } catch (error) {
-        console.error('Error updating button countdown:', error);
-    }
-};
-
 module.exports = {
     // Slash Command Definition
     data: new SlashCommandBuilder()
@@ -321,22 +239,10 @@ module.exports = {
 
     // Slash Command Execution
     async slashExecute(interaction) {
-        const cooldownCheck = checkCooldown(interaction.user.id, 'pussy');
-        
-        if (cooldownCheck.onCooldown) {
-            return await interaction.reply({ 
-                embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                ephemeral: true 
-            });
-        }
-
         // Defer the reply as fetching the image might take a moment.
         await interaction.deferReply({ ephemeral: false }); // Make it visible to everyone.
 
         const payload = await generatePussyPayload();
-        
-        // Set cooldown after successful execution
-        setCooldown(interaction.user.id, 'pussy');
 
         // Edit the deferred reply with the generated payload.
         await interaction.editReply(payload);
@@ -344,23 +250,11 @@ module.exports = {
 
     // Prefix Command Execution
     async prefixExecute(message, args) {
-        const cooldownCheck = checkCooldown(message.author.id, 'pussy');
-        
-        if (cooldownCheck.onCooldown) {
-            return await message.reply({ 
-                embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                ephemeral: true 
-            });
-        }
-
         // For prefix commands, we just send the message directly.
         // No deferral needed here unless we want a "Typing..." indicator.
         // Let's keep it simple and send directly.
 
         const payload = await generatePussyPayload();
-        
-        // Set cooldown after successful execution
-        setCooldown(message.author.id, 'pussy');
 
         // Send the message to the channel.
         await message.channel.send(payload);
@@ -375,36 +269,12 @@ module.exports = {
         const action = componentArgs[1]; // e.g., 'reload'
 
         if (componentType === 'button' && action === 'reload') {
-            const cooldownCheck = checkCooldown(interaction.user.id, 'pussy');
-            
-            if (cooldownCheck.onCooldown) {
-                return await interaction.reply({ 
-                    embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                    ephemeral: true 
-                });
-            }
-
             // Handle the reload button click
             try {
                 // Defer the button interaction update, this makes the button show a loading state.
                 await interaction.deferUpdate();
 
-                // Get cached URL to reuse during countdown
-                const cache = loadCache();
-                const cachedUrl = cache.lastPussyUrl;
-
-                // Set cooldown immediately
-                setCooldown(interaction.user.id, 'pussy');
-
-                // Start countdown without fetching new image
-                if (cachedUrl) {
-                    for (let i = 2; i > 0; i--) {
-                        await updateButtonCountdown(interaction, i, cachedUrl);
-                        if (i > 1) await new Promise(resolve => setTimeout(resolve, 1000));
-                    }
-                }
-
-                // Generate a new payload with a fresh image after countdown
+                // Generate a new payload with a fresh image.
                 const newPayload = await generatePussyPayload();
 
                 // Edit the original message with the new payload.
