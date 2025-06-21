@@ -1,4 +1,3 @@
-
 // commands/anal.js
 
 const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, StringSelectMenuBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorSpacingSize, EmbedBuilder } = require('discord.js');
@@ -56,12 +55,12 @@ const checkCooldown = (userId, commandName) => {
     const lastUsed = userCooldowns[commandName] || 0;
     const now = Date.now();
     const cooldownTime = 2000; // 2 seconds
-    
+
     if (now - lastUsed < cooldownTime) {
         const remaining = Math.ceil((cooldownTime - (now - lastUsed)) / 1000);
         return { onCooldown: true, remaining };
     }
-    
+
     return { onCooldown: false };
 };
 
@@ -95,12 +94,12 @@ class ImagePreloader {
 
     async preloadOnInit() {
         if (this.isPreloadingAnime || this.isPreloadingReal) return;
-        
+
         try {
             // Preload both categories
             const animePromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache('anime'));
             const realPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache('real'));
-            
+
             await Promise.all([...animePromises, ...realPromises]);
         } catch (error) {
             console.error('Initial preload failed:', error);
@@ -117,13 +116,13 @@ class ImagePreloader {
                 } else {
                     imageUrl = await nsfw.real.anal();
                 }
-                
+
                 if (imageUrl) {
                     const cacheObj = {
                         url: imageUrl,
                         timestamp: Date.now()
                     };
-                    
+
                     if (category === 'anime') {
                         this.animeCache.push(cacheObj);
                     } else {
@@ -134,7 +133,7 @@ class ImagePreloader {
             } catch (error) {
                 console.error(`Cache fetch failed for anal (${category}, ${retries} retries left):`, error);
             }
-            
+
             retries--;
             if (retries > 0) {
                 await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
@@ -144,7 +143,7 @@ class ImagePreloader {
 
     async getImage(category) {
         const cache = category === 'anime' ? this.animeCache : this.realCache;
-        
+
         if (cache.length === 0) {
             let retries = 3;
             while (retries > 0) {
@@ -155,7 +154,7 @@ class ImagePreloader {
                     } else {
                         imageUrl = await nsfw.real.anal();
                     }
-                    
+
                     if (imageUrl) {
                         this.triggerBackgroundPreload(category);
                         return imageUrl;
@@ -163,28 +162,28 @@ class ImagePreloader {
                 } catch (error) {
                     console.error(`Direct fetch failed for anal (${category}, ${retries} retries left):`, error);
                 }
-                
+
                 retries--;
                 if (retries > 0) {
                     await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
                 }
             }
-            
+
             throw new Error(`Failed to fetch image after multiple attempts`);
         }
 
         const cachedImage = cache.shift();
         this.triggerBackgroundPreload(category);
-        
+
         return cachedImage.url;
     }
 
     triggerBackgroundPreload(category) {
         const cache = category === 'anime' ? this.animeCache : this.realCache;
         const isPreloading = category === 'anime' ? this.isPreloadingAnime : this.isPreloadingReal;
-        
+
         if (isPreloading) return;
-        
+
         setImmediate(async () => {
             while (cache.length < this.targetCacheSize && !isPreloading) {
                 if (category === 'anime') {
@@ -192,15 +191,15 @@ class ImagePreloader {
                 } else {
                     this.isPreloadingReal = true;
                 }
-                
+
                 await this.fetchAndCache(category);
-                
+
                 if (category === 'anime') {
                     this.isPreloadingAnime = false;
                 } else {
                     this.isPreloadingReal = false;
                 }
-                
+
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
         });
@@ -259,7 +258,7 @@ const generateSelectionPayload = () => {
 const generateAnalPayload = async (category, cachedUrl = null) => {
     try {
         let imageUrl = cachedUrl;
-        
+
         if (!imageUrl) {
             try {
                 imageUrl = await imagePreloader.getImage(category);
@@ -267,7 +266,7 @@ const generateAnalPayload = async (category, cachedUrl = null) => {
                 console.error('Failed to fetch new image, trying cached URL:', fetchError);
                 const cache = loadCache();
                 imageUrl = cache[`lastAnal${category.charAt(0).toUpperCase() + category.slice(1)}Url`];
-                
+
                 if (!imageUrl) {
                     throw new Error('No cached image available and API fetch failed');
                 }
@@ -437,18 +436,18 @@ module.exports = {
 
     async slashExecute(interaction) {
         const cooldownCheck = checkCooldown(interaction.user.id, 'anal');
-        
+
         if (cooldownCheck.onCooldown) {
             return await interaction.reply({ 
                 embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
         await interaction.deferReply({ ephemeral: false });
 
         const payload = generateSelectionPayload();
-        
+
         setCooldown(interaction.user.id, 'anal');
 
         await interaction.editReply(payload);
@@ -456,18 +455,18 @@ module.exports = {
 
     async prefixExecute(message, args) {
         const cooldownCheck = checkCooldown(message.author.id, 'anal');
-        
+
         if (cooldownCheck.onCooldown) {
             return await message.reply({ 
                 embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
         const payload = generateSelectionPayload();
-        
+
         setCooldown(message.author.id, 'anal');
-        
+
         await message.channel.send(payload);
     },
 
@@ -477,22 +476,22 @@ module.exports = {
 
         if (componentType === 'select' && action === 'category') {
             const cooldownCheck = checkCooldown(interaction.user.id, 'anal');
-            
+
             if (cooldownCheck.onCooldown) {
                 return await interaction.reply({ 
                     embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral 
                 });
             }
 
             try {
                 await interaction.deferUpdate();
-                
+
                 const selectedCategory = interaction.values[0];
                 const payload = await generateAnalPayload(selectedCategory);
-                
+
                 setCooldown(interaction.user.id, 'anal');
-                
+
                 await interaction.editReply(payload);
             } catch (error) {
                 console.error('Error handling category selection:', error);
@@ -506,11 +505,11 @@ module.exports = {
 
         if (componentType === 'button' && action === 'reload') {
             const cooldownCheck = checkCooldown(interaction.user.id, 'anal');
-            
+
             if (cooldownCheck.onCooldown) {
                 return await interaction.reply({ 
                     embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                    ephemeral: true 
+                    flags: MessageFlags.Ephemeral 
                 });
             }
 
