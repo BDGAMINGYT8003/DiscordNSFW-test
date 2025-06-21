@@ -5,15 +5,13 @@ const { NSFW } = require('nsfwhub'); // Import the NSFW library.
 
 const nsfw = new NSFW(); // Create an instance.
 
-// Ultra-Robust Advanced Preloading Cache System
+// Advanced Preloading Cache System
 class ImagePreloader {
     constructor(category) {
         this.category = category;
         this.cache = [];
         this.isPreloading = false;
-        this.targetCacheSize = 3; // Increased cache size
-        this.maxRetries = 5; // Maximum retry attempts
-        this.retryDelay = 1000; // Base retry delay in ms
+        this.targetCacheSize = 2;
         this.preloadOnInit();
     }
 
@@ -22,11 +20,8 @@ class ImagePreloader {
         this.isPreloading = true;
         
         try {
-            // Use sequential loading with retry for initial preload
-            for (let i = 0; i < this.targetCacheSize; i++) {
-                await this.fetchAndCacheWithRetry();
-                await new Promise(resolve => setTimeout(resolve, 200)); // Prevent API spam
-            }
+            const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
+            await Promise.all(preloadPromises);
         } catch (error) {
             console.error(`Initial preload failed for ${this.category}:`, error);
         }
@@ -34,125 +29,63 @@ class ImagePreloader {
         this.isPreloading = false;
     }
 
-    async fetchAndCacheWithRetry(retryCount = 0) {
+    async fetchAndCache() {
         try {
-            const data = await this.fetchWithValidation();
-            if (data && data.url) {
+            const data = await nsfw.fetch(this.category);
+            if (data && data.image && data.image.url) {
                 this.cache.push({
-                    url: data.url,
+                    url: data.image.url,
                     timestamp: Date.now()
                 });
-                return true;
             }
-            throw new Error('Invalid data structure received');
         } catch (error) {
-            if (retryCount < this.maxRetries) {
-                console.warn(`Fetch attempt ${retryCount + 1} failed for ${this.category}, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, this.retryDelay * (retryCount + 1)));
-                return this.fetchAndCacheWithRetry(retryCount + 1);
-            }
-            console.error(`All retry attempts failed for ${this.category}:`, error);
-            return false;
+            console.error(`Cache fetch failed for ${this.category}:`, error);
         }
-    }
-
-    async fetchWithValidation() {
-        // Try multiple fetch attempts if API returns undefined
-        for (let attempt = 0; attempt < 3; attempt++) {
-            const data = await nsfw.fetch(this.category);
-            
-            // If data is null/undefined, try again
-            if (!data) {
-                if (attempt < 2) {
-                    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-                    continue;
-                } else {
-                    throw new Error('API returned null/undefined after multiple attempts');
-                }
-            }
-            
-            // Handle different possible API response structures
-            if (data.image && data.image.url) {
-                return { url: data.image.url };
-            } else if (data.url) {
-                return { url: data.url };
-            } else if (typeof data === 'string') {
-                return { url: data };
-            } else if (Array.isArray(data) && data.length > 0) {
-                const item = data[0];
-                if (item.image && item.image.url) {
-                    return { url: item.image.url };
-                } else if (item.url) {
-                    return { url: item.url };
-                }
-            }
-            
-            // If structure is unexpected but not null, try again
-            if (attempt < 2) {
-                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-                continue;
-            }
-        }
-        
-        throw new Error(`Unexpected API response structure after 3 attempts`);
     }
 
     async getImage() {
-        // Try to get from cache first
-        if (this.cache.length > 0) {
-            const cachedImage = this.cache.shift();
-            this.triggerBackgroundPreload();
-            return cachedImage.url;
-        }
-
-        // If cache is empty, fetch with retry mechanism
-        let retryCount = 0;
-        while (retryCount < this.maxRetries) {
+        // If cache is empty, fetch immediately
+        if (this.cache.length === 0) {
             try {
-                const data = await this.fetchWithValidation();
+                const data = await nsfw.fetch(this.category);
                 this.triggerBackgroundPreload(); // Start preloading for next time
-                return data.url;
+                return data.image.url;
             } catch (error) {
-                retryCount++;
-                if (retryCount >= this.maxRetries) {
-                    throw new Error(`Failed to fetch image after ${this.maxRetries} attempts: ${error.message}`);
-                }
-                console.warn(`Fetch attempt ${retryCount} failed for ${this.category}, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, this.retryDelay * retryCount));
+                throw error;
             }
         }
+
+        // Get cached image
+        const cachedImage = this.cache.shift();
+        
+        // Immediately trigger background preload to maintain cache
+        this.triggerBackgroundPreload();
+        
+        return cachedImage.url;
     }
 
     triggerBackgroundPreload() {
         if (this.isPreloading) return;
         
-        // Enhanced background preloading with better error handling
+        // Preload in background without blocking
         setImmediate(async () => {
-            this.isPreloading = true;
-            
-            try {
-                while (this.cache.length < this.targetCacheSize) {
-                    const success = await this.fetchAndCacheWithRetry();
-                    if (!success) {
-                        // If fetching fails, wait longer before trying again
-                        await new Promise(resolve => setTimeout(resolve, 5000));
-                        break; // Exit the loop to prevent infinite retries
-                    }
-                    
-                    // Small delay between successful fetches
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                }
-            } catch (error) {
-                console.error(`Background preload error for ${this.category}:`, error);
+            while (this.cache.length < this.targetCacheSize && !this.isPreloading) {
+                this.isPreloading = true;
+                await this.fetchAndCache();
+                this.isPreloading = false;
+                
+                // Small delay to prevent API spam
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
-            
-            this.isPreloading = false;
         });
     }
 }
 
 // Initialize preloader for this category
 const imagePreloader = new ImagePreloader("boobs");
+
+// Cooldown tracking - Even nature's bounty deserves moments of reverence.
+const cooldowns = new Map();
 
 // Shared function to generate the response payload using Components V2
 const generateBoobsPayload = async () => {
@@ -237,6 +170,30 @@ module.exports = {
 
     // Slash Command Execution
     async slashExecute(interaction) {
+        const userId = interaction.user.id;
+        const now = Date.now();
+        const cooldownAmount = 2000; // 2 seconds of reverent waiting.
+
+        if (cooldowns.has(userId)) {
+            const expirationTime = cooldowns.get(userId) + cooldownAmount;
+            
+            if (now < expirationTime) {
+                const timeLeft = (expirationTime - now) / 1000;
+                return await interaction.reply({
+                    embeds: [{
+                        color: 0xFF6B6B,
+                        title: '⏰ Patience, devoted admirer.',
+                        description: `You must wait **${timeLeft.toFixed(1)}s** before beholding another sight.`,
+                        footer: { text: 'Beauty demands reverence.' }
+                    }],
+                    ephemeral: true
+                });
+            }
+        }
+
+        cooldowns.set(userId, now);
+        setTimeout(() => cooldowns.delete(userId), cooldownAmount);
+
         // Defer the reply.
         await interaction.deferReply({ ephemeral: false });
 
@@ -248,6 +205,29 @@ module.exports = {
 
     // Prefix Command Execution
     async prefixExecute(message, args) {
+        const userId = message.author.id;
+        const now = Date.now();
+        const cooldownAmount = 2000; // 2 seconds of appreciative pause.
+
+        if (cooldowns.has(userId)) {
+            const expirationTime = cooldowns.get(userId) + cooldownAmount;
+            
+            if (now < expirationTime) {
+                const timeLeft = (expirationTime - now) / 1000;
+                return await message.reply({
+                    embeds: [{
+                        color: 0xFF6B6B,
+                        title: '⏰ Patience, devoted admirer.',
+                        description: `You must wait **${timeLeft.toFixed(1)}s** before beholding another sight.`,
+                        footer: { text: 'Beauty demands reverence.' }
+                    }]
+                });
+            }
+        }
+
+        cooldowns.set(userId, now);
+        setTimeout(() => cooldowns.delete(userId), cooldownAmount);
+
         // Send the message directly for prefix commands.
         const payload = await generateBoobsPayload();
         await message.channel.send(payload);
@@ -260,16 +240,78 @@ module.exports = {
         const action = componentArgs[1];
 
         if (componentType === 'button' && action === 'reload') {
+            const userId = interaction.user.id;
+            const now = Date.now();
+            const cooldownAmount = 2000; // 2 seconds of devoted appreciation.
+
+            if (cooldowns.has(userId)) {
+                const expirationTime = cooldowns.get(userId) + cooldownAmount;
+                
+                if (now < expirationTime) {
+                    const timeLeft = (expirationTime - now) / 1000;
+                    return await interaction.reply({
+                        embeds: [{
+                            color: 0xFF6B6B,
+                            title: '⏰ Patience, devoted admirer.',
+                            description: `You must wait **${timeLeft.toFixed(1)}s** before beholding another sight.`,
+                            footer: { text: 'Beauty demands reverence.' }
+                        }],
+                        ephemeral: true
+                    });
+                }
+            }
+
+            cooldowns.set(userId, now);
+
             // Handle the reload button click
             try {
                 // Defer the button interaction update.
                 await interaction.deferUpdate();
 
-                // Generate a new payload with a fresh image.
+                // Generate a new payload with a fresh image and disabled button.
                 const newPayload = await generateBoobsPayload();
+                
+                // Disable the button and start countdown
+                const container = newPayload.components[0];
+                const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
+                if (actionRow) {
+                    actionRow.components[0].disabled = true;
+                    actionRow.components[0].style = ButtonStyle.Secondary;
+                    actionRow.components[0].label = '🔃 Reload (2s)';
+                }
 
                 // Edit the original message.
                 await interaction.editReply(newPayload);
+
+                // Start countdown
+                let countdown = 2;
+                const countdownInterval = setInterval(async () => {
+                    countdown--;
+                    if (countdown > 0) {
+                        const updatedPayload = await generateBoobsPayload();
+                        const container = updatedPayload.components[0];
+                        const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
+                        if (actionRow) {
+                            actionRow.components[0].disabled = true;
+                            actionRow.components[0].style = ButtonStyle.Secondary;
+                            actionRow.components[0].label = `🔃 Reload (${countdown}s)`;
+                        }
+                        await interaction.editReply(updatedPayload);
+                    } else {
+                        clearInterval(countdownInterval);
+                        cooldowns.delete(userId);
+                        // Re-enable button with green style
+                        const finalPayload = await generateBoobsPayload();
+                        const container = finalPayload.components[0];
+                        const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
+                        if (actionRow) {
+                            actionRow.components[0].disabled = false;
+                            actionRow.components[0].style = ButtonStyle.Success;
+                            actionRow.components[0].label = '🔃 Reload';
+                        }
+                        await interaction.editReply(finalPayload);
+                    }
+                }, 1000);
 
             } catch (error) {
                 console.error('Error handling boobs reload button:', error);
