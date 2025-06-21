@@ -1,16 +1,36 @@
-
 // commands/anal.js
 
-const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorSpacingSize, EmbedBuilder } = require('discord.js');
-const { NSFW } = require('nsfwhub'); // Import the NSFW library.
+const {
+    SlashCommandBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    ActionRowBuilder,
+    MediaGalleryBuilder,
+    TextDisplayBuilder,
+    MessageFlags,
+    ContainerBuilder,
+    SeparatorSpacingSize,
+    EmbedBuilder,
+    StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder,
+} = require('discord.js');
+
+// Use the new NSFW library
+const { NSFW } = require('@jcauman23/discordnsfw');
 const fs = require('fs');
 const path = require('path');
 
-const nsfw = new NSFW(); // Create an instance.
+const nsfw = new NSFW(); // Create an instance of the new API.
 
-// Cooldown and cache management
-const cooldownFile = path.join(__dirname, '..', 'storage', 'cooldown.json');
-const cacheFile = path.join(__dirname, '..', 'storage', 'cache.json');
+// Cooldown and cache management (using a dedicated storage directory)
+const storageDir = path.join(__dirname, '..', 'storage');
+const cooldownFile = path.join(storageDir, 'cooldown.json');
+const cacheFile = path.join(storageDir, 'cache.json');
+
+// Ensure storage directory exists
+if (!fs.existsSync(storageDir)) {
+    fs.mkdirSync(storageDir);
+}
 
 const loadCooldowns = () => {
     try {
@@ -50,27 +70,27 @@ const saveCache = (cache) => {
     }
 };
 
-const checkCooldown = (userId, commandName) => {
+const checkCooldown = (userId, commandKey) => { // commandKey now includes category (e.g., 'anal_real')
     const cooldowns = loadCooldowns();
     const userCooldowns = cooldowns[userId] || {};
-    const lastUsed = userCooldowns[commandName] || 0;
+    const lastUsed = userCooldowns[commandKey] || 0;
     const now = Date.now();
     const cooldownTime = 2000; // 2 seconds
-    
+
     if (now - lastUsed < cooldownTime) {
         const remaining = Math.ceil((cooldownTime - (now - lastUsed)) / 1000);
         return { onCooldown: true, remaining };
     }
-    
+
     return { onCooldown: false };
 };
 
-const setCooldown = (userId, commandName) => {
+const setCooldown = (userId, commandKey) => { // commandKey now includes category
     const cooldowns = loadCooldowns();
     if (!cooldowns[userId]) {
         cooldowns[userId] = {};
     }
-    cooldowns[userId][commandName] = Date.now();
+    cooldowns[userId][commandKey] = Date.now();
     saveCooldowns(cooldowns);
 };
 
@@ -78,50 +98,58 @@ const createCooldownEmbed = (remaining) => {
     return new EmbedBuilder()
         .setColor(0xFF0000)
         .setTitle('⏰ Slow down there, tiger!')
-        .setDescription(`You're moving too fast! Please wait ${remaining} more second${remaining > 1 ? 's' : ''} before using this command again.`)
+        .setDescription(`You're moving too fast! Please wait ${remaining} more second${remaining > 1 ? 's' : ''} before using this again.`) // Slightly generalized message
         .setTimestamp();
 };
 
-// Advanced Preloading Cache System
+// Advanced Preloading Cache System (adapted for categories)
 class ImagePreloader {
-    constructor(category) {
-        this.category = category;
-        this.cache = [];
-        this.isPreloading = false;
-        this.targetCacheSize = 2;
-        this.preloadOnInit();
+    constructor() {
+        this.cache = { anime: [], real: [] };
+        this.isPreloading = { anime: false, real: false };
+        this.targetCacheSize = 2; // Keep 2 images of each type ready
+        this.preloadOnInit('anime');
+        this.preloadOnInit('real');
     }
 
-    async preloadOnInit() {
-        if (this.isPreloading) return;
-        this.isPreloading = true;
-        
+    async preloadOnInit(type) {
+        if (this.isPreloading[type]) return;
+        this.isPreloading[type] = true;
+
         try {
-            const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
+            const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache(type));
             await Promise.all(preloadPromises);
         } catch (error) {
-            console.error(`Initial preload failed for ${this.category}:`, error);
+            console.error(`Initial preload failed for anal (${type}):`, error);
         }
-        
-        this.isPreloading = false;
+
+        this.isPreloading[type] = false;
     }
 
-    async fetchAndCache() {
+    async fetchAndCache(type) {
         let retries = 3;
         while (retries > 0) {
             try {
-                const data = await nsfw.fetch(this.category);
-                if (data && data.image && data.image.url) {
-                    this.cache.push({
-                        url: data.image.url,
+                let data;
+                if (type === 'anime') {
+                    data = await nsfw.anime.anal(); // Use anime method
+                } else if (type === 'real') {
+                    data = await nsfw.real.anal(); // Use real method
+                } else {
+                    throw new Error(`Invalid type for fetchAndCache: ${type}`);
+                }
+
+                if (data) { // The new API seems to return the URL directly
+                    this.cache[type].push({
+                        url: data, // New API returns URL directly
                         timestamp: Date.now()
                     });
                     return; // Success, exit retry loop
                 }
             } catch (error) {
-                console.error(`Cache fetch failed for ${this.category} (${retries} retries left):`, error);
+                console.error(`Cache fetch failed for anal (${type}, ${retries} retries left):`, error);
             }
-            
+
             retries--;
             if (retries > 0) {
                 // Wait before retrying (exponential backoff)
@@ -130,51 +158,59 @@ class ImagePreloader {
         }
     }
 
-    async getImage() {
-        // If cache is empty, try to fetch with retries
-        if (this.cache.length === 0) {
+    async getImage(type) {
+         // If cache is empty or low, try to fetch with retries
+        if (this.cache[type].length === 0) {
+             console.warn(`Cache empty for anal (${type}), attempting direct fetch.`);
             let retries = 3;
             while (retries > 0) {
                 try {
-                    const data = await nsfw.fetch(this.category);
-                    if (data && data.image && data.image.url) {
-                        this.triggerBackgroundPreload(); // Start preloading for next time
-                        return data.image.url;
+                    let data;
+                    if (type === 'anime') {
+                        data = await nsfw.anime.anal();
+                    } else if (type === 'real') {
+                        data = await nsfw.real.anal();
+                    } else {
+                         throw new Error(`Invalid type for getImage: ${type}`);
+                    }
+                    if (data) { // New API returns URL directly
+                         this.triggerBackgroundPreload(type); // Start preloading for next time
+                         return data;
                     }
                 } catch (error) {
-                    console.error(`Direct fetch failed for ${this.category} (${retries} retries left):`, error);
+                    console.error(`Direct fetch failed for anal (${type}, ${retries} retries left):`, error);
                 }
-                
+
                 retries--;
                 if (retries > 0) {
-                    // Wait before retrying (exponential backoff)
+                    // Wait before retrying
                     await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
                 }
             }
-            
+
             // If all retries failed, throw error
-            throw new Error(`Failed to fetch image after multiple attempts`);
+            throw new Error(`Failed to fetch image for anal (${type}) after multiple attempts`);
         }
 
         // Get cached image
-        const cachedImage = this.cache.shift();
-        
-        // Immediately trigger background preload to maintain cache
-        this.triggerBackgroundPreload();
-        
+        const cachedImage = this.cache[type].shift();
+
+        // Immediately trigger background preload to maintain cache size
+        this.triggerBackgroundPreload(type);
+
         return cachedImage.url;
     }
 
-    triggerBackgroundPreload() {
-        if (this.isPreloading) return;
-        
+    triggerBackgroundPreload(type) {
+        if (this.isPreloading[type]) return;
+
         // Preload in background without blocking
         setImmediate(async () => {
-            while (this.cache.length < this.targetCacheSize && !this.isPreloading) {
-                this.isPreloading = true;
-                await this.fetchAndCache();
-                this.isPreloading = false;
-                
+            while (this.cache[type].length < this.targetCacheSize && !this.isPreloading[type]) {
+                this.isPreloading[type] = true;
+                await this.fetchAndCache(type);
+                this.isPreloading[type] = false;
+
                 // Small delay to prevent API spam
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
@@ -182,64 +218,110 @@ class ImagePreloader {
     }
 }
 
-// Initialize preloader for this category
-const imagePreloader = new ImagePreloader("anal");
+// Initialize preloader for this command
+const imagePreloader = new ImagePreloader();
 
-// Shared function to generate the response payload using Components V2
-const generateAnalPayload = async (cachedUrl = null) => {
+// Function to create the initial selection menu payload
+const createSelectionPayload = () => {
+    const container = new ContainerBuilder()
+        .setAccentColor(0x0099FF) // A neutral color for selection
+        .addTextDisplayComponents(
+            textDisplay => textDisplay
+                .setContent('### Choose your flavor:') // Instructions
+        )
+        .addSeparatorComponents(
+            separator => separator
+                .setSpacing(SeparatorSpacingSize.Large)
+        );
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('anal_select_category') // Unique ID for this select menu
+        .setPlaceholder('Select a category...')
+        .addOptions(
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Anime')
+                .setValue('anime')
+                .setDescription('Explore animated delights.'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Real')
+                .setValue('real')
+                .setDescription('Experience the genuine article.'),
+        );
+
+    const actionRow = new ActionRowBuilder()
+        .addComponents(selectMenu);
+
+    container.addActionRowComponents(actionRow);
+
+    const payload = {
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+    };
+
+    return payload;
+};
+
+
+// Function to generate the response payload *after* category is selected
+const generateAnalPayload = async (type, cachedUrl = null) => {
     try {
         let imageUrl = cachedUrl;
-        
+
         // Only try to fetch new image if no cached URL provided
         if (!imageUrl) {
             try {
-                imageUrl = await imagePreloader.getImage();
+                imageUrl = await imagePreloader.getImage(type);
             } catch (fetchError) {
-                console.error('Failed to fetch new image, trying cached URL:', fetchError);
+                console.error(`Failed to fetch new anal (${type}) image, trying cached URL:`, fetchError);
                 // Try to use last cached URL as fallback
                 const cache = loadCache();
-                imageUrl = cache.lastAnalUrl;
-                
-                if (!imageUrl) {
-                    throw new Error('No cached image available and API fetch failed');
+                const lastCachedUrl = type === 'anime' ? cache.lastAnalAnimeUrl : cache.lastAnalRealUrl;
+
+                if (!lastCachedUrl) {
+                    throw new Error(`No cached anal (${type}) image available and API fetch failed`);
                 }
+                imageUrl = lastCachedUrl; // Use fallback URL
             }
         }
 
-        // Cache the URL for reuse during cooldown
+        // Cache the URL for reuse during cooldown and as fallback
         if (!cachedUrl && imageUrl) {
             const cache = loadCache();
-            cache.lastAnalUrl = imageUrl;
+            if (type === 'anime') {
+                cache.lastAnalAnimeUrl = imageUrl;
+            } else { // type === 'real'
+                cache.lastAnalRealUrl = imageUrl;
+            }
             saveCache(cache);
         }
 
         // Wrapping it in a Container for that signature formal flair.
         const container = new ContainerBuilder()
-            .setAccentColor(0xFF007F) // Keeping the lovely color.
-            .addTextDisplayComponents( // Add a title
+            .setAccentColor(0xFF007F) // Keeping the lovely color for the image display
+            .addTextDisplayComponents( // Add a title indicating category
                 textDisplay => textDisplay
-                    .setContent('### Behold! A journey to the rear.') // Markdown for a nice heading
+                    .setContent(`### Behold! A ${type} journey to the rear.`) // Markdown for a nice heading
             )
              // Add a separator for spacing
             .addSeparatorComponents(
                 separator => separator
-                    .setSpacing(SeparatorSpacingSize.Large) // Large spacing, as corrected.
+                    .setSpacing(SeparatorSpacingSize.Large) // Large spacing.
             )
             .addMediaGalleryComponents( // The main attraction!
                 mediaGallery => mediaGallery
                     .addItems( // Add the image/media from the fetched URL
                         mediaGalleryItem => mediaGalleryItem
-                            // Assuming nsfwhub provides a direct link that discord can handle
+                            // The new API returns URLs directly, no attachment needed unless it's a local file
                             .setURL(imageUrl)
-                            .setDescription('A path well-trodden.') // Alt text.
+                            .setDescription(`A ${type} path well-trodden.`) // Alt text includes type.
                     )
             );
 
-        // Add the Reload button.
+        // Add the Reload button. Custom ID includes the type.
         const reloadButton = new ButtonBuilder()
-            .setCustomId('anal_button_reload') // Unique ID for this command's reload button.
+            .setCustomId(`anal_button_reload_${type}`) // Unique ID includes category type
             .setLabel('🔃 Reload')
-            .setStyle(ButtonStyle.Primary);
+            .setStyle(ButtonStyle.Success); // Green reload button
 
         // Put the button in an Action Row.
         const actionRow = new ActionRowBuilder()
@@ -258,7 +340,7 @@ const generateAnalPayload = async (cachedUrl = null) => {
         return payload;
 
     } catch (error) {
-        console.error('Error fetching anal image:', error);
+        console.error(`Error generating anal (${type}) payload:`, error);
         // Return an error payload using CV2 components.
         const errorContainer = new ContainerBuilder()
             .setAccentColor(0xFF0000)
@@ -272,7 +354,7 @@ const generateAnalPayload = async (cachedUrl = null) => {
             )
             .addTextDisplayComponents(
                 textDisplay => textDisplay
-                    .setContent('Failed to fetch the requested image. This particular tunnel seems blocked right now.')
+                    .setContent(`Failed to fetch the requested anal (${type}) image. The API might be shy right now or encountered an issue.`)
             );
 
          const errorPayload = {
@@ -284,12 +366,13 @@ const generateAnalPayload = async (cachedUrl = null) => {
 };
 
 // Function to update button with countdown
-const updateButtonCountdown = async (interaction, seconds, cachedUrl) => {
+const updateButtonCountdown = async (interaction, seconds, type, cachedUrl) => {
+     // Recreate the container with the *current* image and updated button
     const container = new ContainerBuilder()
         .setAccentColor(0xFF007F)
         .addTextDisplayComponents(
             textDisplay => textDisplay
-                .setContent('### Behold! A journey to the rear.')
+                .setContent(`### Behold! A ${type} journey to the rear.`) // Title based on type
         )
         .addSeparatorComponents(
             separator => separator
@@ -299,144 +382,222 @@ const updateButtonCountdown = async (interaction, seconds, cachedUrl) => {
             mediaGallery => mediaGallery
                 .addItems(
                     mediaGalleryItem => mediaGalleryItem
-                        .setURL(cachedUrl)
-                        .setDescription('A path well-trodden.')
+                        .setURL(cachedUrl) // Use the cached URL for the countdown display
+                        .setDescription(`A ${type} path well-trodden.`)
                 )
         );
 
     const reloadButton = new ButtonBuilder()
-        .setCustomId('anal_button_reload')
+        .setCustomId(`anal_button_reload_${type}`) // Maintain the custom ID with type
         .setLabel(`🔃 Reload (${seconds}s)`)
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(true);
+        .setStyle(ButtonStyle.Secondary) // Gray button during cooldown
+        .setDisabled(true); // Disabled during cooldown
 
     const actionRow = new ActionRowBuilder()
         .addComponents(reloadButton);
 
-    container.addActionRowComponents(actionRow);
+     // Add the original selection menu back, disabled, so the structure is consistent (optional, could just have button)
+     // User asked for them to always stay, let's add them back disabled
+     const disabledSelectMenu = new StringSelectMenuBuilder()
+        .setCustomId('anal_select_category') // Keep the original ID
+        .setPlaceholder(`Category: ${type.charAt(0).toUpperCase() + type.slice(1)}`) // Show selected category
+        .setDisabled(true) // Disabled after selection
+        .addOptions( // Still include options, but disabled
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Anime')
+                .setValue('anime'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Real')
+                .setValue('real'),
+        );
+
+    const disabledSelectRow = new ActionRowBuilder().addComponents(disabledSelectMenu);
+    container.addActionRowComponents(disabledSelectRow); // Add disabled select menu row
+
+    container.addActionRowComponents(actionRow); // Add the button row
+
 
     const payload = {
-        components: [container],
+        components: [container], // Send the updated container
         flags: MessageFlags.IsComponentsV2,
     };
 
     try {
         await interaction.editReply(payload);
     } catch (error) {
-        console.error('Error updating button countdown:', error);
+        console.error('Error updating anal button countdown:', error);
     }
 };
+
 
 module.exports = {
     // Slash Command Definition
     data: new SlashCommandBuilder()
         .setName('anal')
-        .setDescription('Explores a different kind of entry.'), // A suggestive description.
+        .setDescription('Explores different kinds of entry - Anime or Real.'), // Updated description.
 
-    // Slash Command Execution
+    // Slash Command Execution (shows the selection menu first)
     async slashExecute(interaction) {
-        const cooldownCheck = checkCooldown(interaction.user.id, 'anal');
-        
-        if (cooldownCheck.onCooldown) {
-            return await interaction.reply({ 
-                embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                ephemeral: true 
-            });
-        }
-
-        // Defer the reply.
-        await interaction.deferReply({ ephemeral: false });
-
-        const payload = await generateAnalPayload();
-        
-        // Set cooldown after successful execution
-        setCooldown(interaction.user.id, 'anal');
-
-        // Edit the deferred reply.
-        await interaction.editReply(payload);
+        // No cooldown check here, cooldown applies after category selection and image fetch
+        await interaction.reply(createSelectionPayload());
     },
 
-    // Prefix Command Execution
+    // Prefix Command Execution (shows the selection menu first)
     async prefixExecute(message, args) {
-        const cooldownCheck = checkCooldown(message.author.id, 'anal');
-        
-        if (cooldownCheck.onCooldown) {
-            return await message.reply({ 
-                embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                ephemeral: true 
-            });
-        }
-
-        // Send the message directly for prefix commands.
-        const payload = await generateAnalPayload();
-        
-        // Set cooldown after successful execution
-        setCooldown(message.author.id, 'anal');
-        
-        await message.channel.send(payload);
+         // No cooldown check here
+        await message.channel.send(createSelectionPayload());
     },
 
-    // Component Handling (e.g., Button Clicks)
+    // Component Handling (Handles both select menu and button clicks)
     async handleComponent(interaction, componentArgs) {
-         // componentArgs will contain parts of the customId after the command name, e.g., ['button', 'reload']
-        const componentType = componentArgs[0];
-        const action = componentArgs[1];
+         // componentArgs will be like ['select', 'category'] or ['button', 'reload', 'anime'] / ['button', 'reload', 'real']
+        const componentType = componentArgs[0]; // 'select' or 'button'
+        const action = componentArgs[1]; // 'category' or 'reload'
+        const type = componentArgs[2]; // 'anime' or 'real' (only for reload button)
 
-        if (componentType === 'button' && action === 'reload') {
-            const cooldownCheck = checkCooldown(interaction.user.id, 'anal');
-            
-            if (cooldownCheck.onCooldown) {
-                return await interaction.reply({ 
-                    embeds: [createCooldownEmbed(cooldownCheck.remaining)], 
-                    ephemeral: true 
-                });
+        if (interaction.isStringSelectMenu() && action === 'category') {
+             const selectedType = interaction.values[0]; // 'anime' or 'real'
+
+             // Defer the update to the select menu interaction
+             await interaction.deferUpdate();
+
+             // Now, check cooldown based on the *selected category*
+             const commandKey = `anal_${selectedType}`;
+             const cooldownCheck = checkCooldown(interaction.user.id, commandKey);
+
+             if (cooldownCheck.onCooldown) {
+                  // Reply ephemerally with cooldown message
+                 return await interaction.followUp({
+                     embeds: [createCooldownEmbed(cooldownCheck.remaining)],
+                     ephemeral: true
+                 });
+             }
+
+            // Fetch and display the image for the selected category
+            try {
+                const payload = await generateAnalPayload(selectedType);
+
+                // Set cooldown after successful fetch
+                setCooldown(interaction.user.id, commandKey);
+
+                // Edit the original message to show the image and reload button
+                await interaction.editReply(payload);
+
+            } catch (error) {
+                console.error(`Error handling anal select menu (${selectedType}):`, error);
+                 // Reply ephemerally with error message
+                await interaction.followUp({ content: 'Failed to fetch the image for the selected category!', ephemeral: true });
+
+                // Re-send the selection menu payload so user can try again or select different category
+                 try {
+                    await interaction.editReply(createSelectionPayload());
+                 } catch (editError) {
+                     console.error('Failed to revert to selection menu after error:', editError);
+                     // If even sending the selection menu fails, just reply ephemerally
+                     await interaction.followUp({ content: 'An error occurred and I could not refresh the selection menu.', ephemeral: true });
+                 }
             }
+
+        } else if (interaction.isButton() && action === 'reload' && (type === 'anime' || type === 'real')) {
+             // Handle the reload button click for a specific type
+             const commandKey = `anal_${type}`;
+             const cooldownCheck = checkCooldown(interaction.user.id, commandKey);
+
+             if (cooldownCheck.onCooldown) {
+                  // Reply ephemerally with cooldown message
+                  return await interaction.followUp({
+                      embeds: [createCooldownEmbed(cooldownCheck.remaining)],
+                      ephemeral: true
+                  });
+              }
 
             // Handle the reload button click
             try {
                 // Defer the button interaction update.
                 await interaction.deferUpdate();
 
-                // Get cached URL to reuse during countdown
+                // Get cached URL for the *current* type to reuse during countdown
                 const cache = loadCache();
-                const cachedUrl = cache.lastAnalUrl;
+                const cachedUrl = type === 'anime' ? cache.lastAnalAnimeUrl : cache.lastAnalRealUrl;
 
-                // Set cooldown immediately
-                setCooldown(interaction.user.id, 'anal');
 
-                // Start countdown without fetching new image
+                // Set cooldown immediately for the specific type
+                setCooldown(interaction.user.id, commandKey);
+
+                // Start countdown without fetching new image, using the cached URL and type
                 if (cachedUrl) {
-                    for (let i = 2; i > 0; i--) {
-                        await updateButtonCountdown(interaction, i, cachedUrl);
+                    for (let i = 2; i > 0; i--) { // Cooldown is 2 seconds
+                        await updateButtonCountdown(interaction, i, type, cachedUrl);
                         if (i > 1) await new Promise(resolve => setTimeout(resolve, 1000));
                     }
+                } else {
+                    // If no cached URL for countdown, maybe show a generic loading state?
+                    // For now, just proceed to fetch after the delay
+                    console.warn(`No cached URL for anal (${type}) countdown. Waiting before fetching.`);
+                     await new Promise(resolve => setTimeout(resolve, 2000)); // Wait full cooldown duration
                 }
 
-                // Generate a new payload with a fresh image after countdown
+
+                // Generate a new payload with a fresh image after cooldown
                 try {
-                    const newPayload = await generateAnalPayload();
-                    await interaction.editReply(newPayload);
+                    const newPayload = await generateAnalPayload(type); // Fetch new image of the SAME type
+                    await interaction.editReply(newPayload); // Edit the original message
+
                 } catch (payloadError) {
-                    console.error('Failed to generate new payload, keeping current image:', payloadError);
-                    // If we can't get a new image, just restore the original with working button
+                    console.error(`Failed to generate new anal (${type}) payload after reload cooldown:`, payloadError);
+                    // If we can't get a new image, try to restore the message with the last cached image and working button
                     if (cachedUrl) {
-                        const fallbackPayload = await generateAnalPayload(cachedUrl);
+                         console.log('Restoring message with last cached URL and enabled button.');
+                        const fallbackPayload = await generateAnalPayload(type, cachedUrl); // Regenerate payload using old URL
+                        // Need to re-enable button manually if generatePayload didn't
+                        fallbackPayload.components[0].components.forEach(comp => {
+                            if (comp.type === 1) { // Action Row
+                                comp.components.forEach(innerComp => {
+                                    if (innerComp.type === 2 && innerComp.custom_id === `anal_button_reload_${type}`) { // Button
+                                        innerComp.disabled = false;
+                                        innerComp.style = ButtonStyle.Success; // Green button
+                                        innerComp.label = '🔃 Reload'; // Remove countdown label
+                                    } else if (innerComp.type === 8) { // Select Menu
+                                         innerComp.disabled = true; // Ensure select is still disabled
+                                    }
+                                });
+                            }
+                        });
                         await interaction.editReply(fallbackPayload);
+
                     } else {
-                        throw payloadError; // Re-throw if no fallback available
+                        console.error('No cached URL available for fallback after reload failure.');
+                         // Inform the user ephemerally as we can't edit the main message robustly
+                         await interaction.followUp({ content: `Failed to reload the anal (${type}) image and no cached fallback is available.`, ephemeral: true });
+                         // Attempt to restore the original selection menu state if all else fails?
+                         try {
+                            await interaction.editReply(createSelectionPayload());
+                         } catch (editError) {
+                             console.error('Failed to revert to selection menu after critical reload error:', editError);
+                              await interaction.followUp({ content: 'A critical error occurred and I could not restore the message state.', ephemeral: true });
+                         }
                     }
                 }
 
             } catch (error) {
-                console.error('Error handling anal reload button:', error);
-                // Inform the user about the error.
+                console.error(`Error handling anal (${type}) reload button:`, error);
+                // Inform the user about the error, maybe ephemerally.
                 if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: 'Failed to reload the image!', ephemeral: true });
+                    await interaction.reply({ content: `Failed to reload the anal (${type}) image!`, ephemeral: true });
                 } else {
-                    await interaction.followUp({ content: 'Failed to reload the image!', ephemeral: true });
+                    await interaction.followUp({ content: `Failed to reload the anal (${type}) image!`, ephemeral: true });
                 }
+                // If the initial deferUpdate failed or subsequent edit failed completely, maybe try to show the selection menu again?
+                try {
+                     // Attempt to restore the original selection menu state
+                     await interaction.editReply(createSelectionPayload());
+                 } catch (editError) {
+                     console.error('Failed to revert to selection menu after reload button error:', editError);
+                     // Give up and just send an ephemeral error if edit fails
+                     await interaction.followUp({ content: 'An error occurred and I could not restore the message state.', ephemeral: true });
+                 }
             }
         }
-        // Add more component handling here if needed.
+        // Add more component handling logic here if the command gains more interactive components.
     },
 };

@@ -10,8 +10,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@jcauman23/discordnsfw": "^2.2.0",
     "@types/node": "^22.13.11",
     "discord.js": "^14.20.0",
+    "hmfull": "^2.4.3",
+    "hmtai": "^3.2.3",
     "nsfwhub": "^0.0.2"
   }
 }
