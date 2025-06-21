@@ -1,150 +1,5 @@
-Can you use this new completely separate API to write a new /anal along with the prefix command following my main command structure from the system prompt? Remember, the previous /anal one has been scrapped, so no need to be a motherfucker to add extra things like /anal_discordnsfw, just /anal and prefix anal. But since this dependency has both real and anime methods, you're gonna add a Selection menu inside the embedding, under the selection menu, the green reload button will be there. So when you run /anal or prefix anal, it should prompt you to select a catagory - Anime or Real - after selecting, it will instantly fetch the image. Also reloading will always reload from the selected Catagory, not from the vice versa (selection menu and green reload button {only gray disabled during cooldown) should always stay and fully work, even after interactions)
 
-skip to:contentpackage searchsign in
-Pro
-Teams
-Pricing
-Documentation
-npm
-Search packages
-Search
-@jcauman23/discordnsfw
-2.2.0 • Public • Published 4 days ago
-DiscordNSFW
-DiscordNSFW is a simple package to implement NSFW commands for discord bots.
-
-IMPORTANT UPDATE
-Version "2.0.1" Now Supports Discord.JS V14 and fixed all broken links
-
-Note
-⚠ Please install the latest version of this package only. Old versions aren't supported!.
-
-Installing
-npm i @jcauman23/discordnsfw
-.anime Methods
-Anal (.anal)
-Ass (.ass)
-Boobs (.boobs)
-Cum (.cum)
-Ecchi (.ecchi)
-Ero (.ero)
-Hentai (.hentai)
-Kitsune (.kitsune)
-Lewd (.lewd)
-Milf (.milf)
-Neko (.neko)
-Oral (.oral)
-Paizuri (.paizuri)
-Pussy (.pussy)
-Solo (.solo)
-Thigh (.thigh)
-Yuri (.yuri)
-.real Methods
-Anal (.anal)
-Ass (.ass)
-BDSM (.bdsm)
-Black (.black)
-Blowjob (.blowjob)
-Boobs (.boobs)
-Bottomless (.bottomless)
-Collared (.collared)
-Cum (.cum)
-Cum Sluts (.cumsluts)
-Easter (.easter)
-Feet (.feet)
-Finger (.finger)
-Fuck (.fuck)
-Gone Wild (.gonewild)
-Group (.group)
-Lick (.lick)
-PHGif (.phgif)
-Pussy (.pussy)
-Sixtynine (.sixtynine)
-Tattoo (tattoo)
-Thigh (.thigh)
-Tiny (tiny)
-Toys (toys)
-XMAS (.xmas)
-Example Anime Method
-module.exports = async(message) => {
-    const Discord = require("discord.js");
-    const NSFW = require("discordnsfw");
-    const nsfw = new NSFW();
-
-    const image = await nsfw.anime.pussy();
-    message.channel.send({
-        embeds: [{
-            title: "Here's your NSFW anime image",
-            image: { url: image }
-        }]
-    });
-}
-Example Real Method
-module.exports = async(message) => {
-    const Discord = require("discord.js");
-    const NSFW = require("discordnsfw");
-    const nsfw = new NSFW();
-
-    const image = await nsfw.real.pussy();
-    message.channel.send({
-        embeds: [{
-            title: "Here's your NSFW anime image",
-            image: { url: image }
-        }]
-    });
-}
-Note
-⚠ | This package uses [Nekobot API], [OPENBoobs API], [OnRender API], [Waifu.Im API], [Waifu.Pic API] and [Purrbot.Site API] to fetch all images.
-
-Readme
-Keywords
-nsfwdiscordhentaianimeneko
-Package Sidebar
-Install
-npm i @jcauman23/discordnsfw
-
-Weekly Downloads
-131
-
-Version
-2.2.0
-
-License
-ISC
-
-Unpacked Size
-44.1 kB
-
-Total Files
-6
-
-Last publish
-4 days ago
-
-Collaborators
-jcauman23
-Try on RunKit
-Report malware
-Footer
-Support
-Help
-Advisories
-Status
-Contact npm
-Company
-About
-Blog
-Press
-Terms & Policies
-Policies
-Terms of Use
-Code of Conduct
-Privacy
-
-Here's the new kind of command structure that you're gonna use to keep the consistency across the entire bot (only API is subject to change) :-
-
-
-// commands/anal.js
+// commands/blowjub.js
 
 const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorSpacingSize, EmbedBuilder } = require('discord.js');
 const { NSFW } = require('nsfwhub'); // Import the NSFW library.
@@ -328,33 +183,17 @@ class ImagePreloader {
 }
 
 // Initialize preloader for this category
-const imagePreloader = new ImagePreloader("anal");
+const imagePreloader = new ImagePreloader("blowjub");
 
 // Shared function to generate the response payload using Components V2
-const generateAnalPayload = async (cachedUrl = null) => {
+const generateBlowjubPayload = async (cachedUrl = null) => {
     try {
-        let imageUrl = cachedUrl;
-        
-        // Only try to fetch new image if no cached URL provided
-        if (!imageUrl) {
-            try {
-                imageUrl = await imagePreloader.getImage();
-            } catch (fetchError) {
-                console.error('Failed to fetch new image, trying cached URL:', fetchError);
-                // Try to use last cached URL as fallback
-                const cache = loadCache();
-                imageUrl = cache.lastAnalUrl;
-                
-                if (!imageUrl) {
-                    throw new Error('No cached image available and API fetch failed');
-                }
-            }
-        }
+        const imageUrl = cachedUrl || await imagePreloader.getImage(); // Ultra-fast preloaded image
 
         // Cache the URL for reuse during cooldown
-        if (!cachedUrl && imageUrl) {
+        if (!cachedUrl) {
             const cache = loadCache();
-            cache.lastAnalUrl = imageUrl;
+            cache.lastBlowjubUrl = imageUrl;
             saveCache(cache);
         }
 
@@ -363,12 +202,12 @@ const generateAnalPayload = async (cachedUrl = null) => {
             .setAccentColor(0xFF007F) // Keeping the lovely color.
             .addTextDisplayComponents( // Add a title
                 textDisplay => textDisplay
-                    .setContent('### Behold! A journey to the rear.') // Markdown for a nice heading
+                    .setContent('### Behold! An intimate service.') // Markdown for a nice heading
             )
              // Add a separator for spacing
             .addSeparatorComponents(
                 separator => separator
-                    .setSpacing(SeparatorSpacingSize.Large) // Large spacing, as corrected.
+                    .setSpacing(SeparatorSpacingSize.Large) // Large spacing.
             )
             .addMediaGalleryComponents( // The main attraction!
                 mediaGallery => mediaGallery
@@ -376,13 +215,13 @@ const generateAnalPayload = async (cachedUrl = null) => {
                         mediaGalleryItem => mediaGalleryItem
                             // Assuming nsfwhub provides a direct link that discord can handle
                             .setURL(imageUrl)
-                            .setDescription('A path well-trodden.') // Alt text.
+                            .setDescription('A devoted act.') // Alt text.
                     )
             );
 
         // Add the Reload button.
         const reloadButton = new ButtonBuilder()
-            .setCustomId('anal_button_reload') // Unique ID for this command's reload button.
+            .setCustomId('blowjub_button_reload') // Unique ID for this command's reload button.
             .setLabel('🔃 Reload')
             .setStyle(ButtonStyle.Primary);
 
@@ -403,7 +242,7 @@ const generateAnalPayload = async (cachedUrl = null) => {
         return payload;
 
     } catch (error) {
-        console.error('Error fetching anal image:', error);
+        console.error('Error fetching blowjub image:', error);
         // Return an error payload using CV2 components.
         const errorContainer = new ContainerBuilder()
             .setAccentColor(0xFF0000)
@@ -417,7 +256,7 @@ const generateAnalPayload = async (cachedUrl = null) => {
             )
             .addTextDisplayComponents(
                 textDisplay => textDisplay
-                    .setContent('Failed to fetch the requested image. This particular tunnel seems blocked right now.')
+                    .setContent('Failed to fetch the requested image. The service seems unavailable right now.')
             );
 
          const errorPayload = {
@@ -434,7 +273,7 @@ const updateButtonCountdown = async (interaction, seconds, cachedUrl) => {
         .setAccentColor(0xFF007F)
         .addTextDisplayComponents(
             textDisplay => textDisplay
-                .setContent('### Behold! A journey to the rear.')
+                .setContent('### Behold! An intimate service.')
         )
         .addSeparatorComponents(
             separator => separator
@@ -445,12 +284,12 @@ const updateButtonCountdown = async (interaction, seconds, cachedUrl) => {
                 .addItems(
                     mediaGalleryItem => mediaGalleryItem
                         .setURL(cachedUrl)
-                        .setDescription('A path well-trodden.')
+                        .setDescription('A devoted act.')
                 )
         );
 
     const reloadButton = new ButtonBuilder()
-        .setCustomId('anal_button_reload')
+        .setCustomId('blowjub_button_reload')
         .setLabel(`🔃 Reload (${seconds}s)`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(true);
@@ -475,12 +314,12 @@ const updateButtonCountdown = async (interaction, seconds, cachedUrl) => {
 module.exports = {
     // Slash Command Definition
     data: new SlashCommandBuilder()
-        .setName('anal')
-        .setDescription('Explores a different kind of entry.'), // A suggestive description.
+        .setName('blowjub')
+        .setDescription('Displays acts of devotion.'), // A tasteful description.
 
     // Slash Command Execution
     async slashExecute(interaction) {
-        const cooldownCheck = checkCooldown(interaction.user.id, 'anal');
+        const cooldownCheck = checkCooldown(interaction.user.id, 'blowjub');
         
         if (cooldownCheck.onCooldown) {
             return await interaction.reply({ 
@@ -492,10 +331,10 @@ module.exports = {
         // Defer the reply.
         await interaction.deferReply({ ephemeral: false });
 
-        const payload = await generateAnalPayload();
+        const payload = await generateBlowjubPayload();
         
         // Set cooldown after successful execution
-        setCooldown(interaction.user.id, 'anal');
+        setCooldown(interaction.user.id, 'blowjub');
 
         // Edit the deferred reply.
         await interaction.editReply(payload);
@@ -503,7 +342,7 @@ module.exports = {
 
     // Prefix Command Execution
     async prefixExecute(message, args) {
-        const cooldownCheck = checkCooldown(message.author.id, 'anal');
+        const cooldownCheck = checkCooldown(message.author.id, 'blowjub');
         
         if (cooldownCheck.onCooldown) {
             return await message.reply({ 
@@ -513,10 +352,10 @@ module.exports = {
         }
 
         // Send the message directly for prefix commands.
-        const payload = await generateAnalPayload();
+        const payload = await generateBlowjubPayload();
         
         // Set cooldown after successful execution
-        setCooldown(message.author.id, 'anal');
+        setCooldown(message.author.id, 'blowjub');
         
         await message.channel.send(payload);
     },
@@ -528,7 +367,7 @@ module.exports = {
         const action = componentArgs[1];
 
         if (componentType === 'button' && action === 'reload') {
-            const cooldownCheck = checkCooldown(interaction.user.id, 'anal');
+            const cooldownCheck = checkCooldown(interaction.user.id, 'blowjub');
             
             if (cooldownCheck.onCooldown) {
                 return await interaction.reply({ 
@@ -544,10 +383,10 @@ module.exports = {
 
                 // Get cached URL to reuse during countdown
                 const cache = loadCache();
-                const cachedUrl = cache.lastAnalUrl;
+                const cachedUrl = cache.lastBlowjubUrl;
 
                 // Set cooldown immediately
-                setCooldown(interaction.user.id, 'anal');
+                setCooldown(interaction.user.id, 'blowjub');
 
                 // Start countdown without fetching new image
                 if (cachedUrl) {
@@ -558,22 +397,13 @@ module.exports = {
                 }
 
                 // Generate a new payload with a fresh image after countdown
-                try {
-                    const newPayload = await generateAnalPayload();
-                    await interaction.editReply(newPayload);
-                } catch (payloadError) {
-                    console.error('Failed to generate new payload, keeping current image:', payloadError);
-                    // If we can't get a new image, just restore the original with working button
-                    if (cachedUrl) {
-                        const fallbackPayload = await generateAnalPayload(cachedUrl);
-                        await interaction.editReply(fallbackPayload);
-                    } else {
-                        throw payloadError; // Re-throw if no fallback available
-                    }
-                }
+                const newPayload = await generateBlowjubPayload();
+
+                // Edit the original message.
+                await interaction.editReply(newPayload);
 
             } catch (error) {
-                console.error('Error handling anal reload button:', error);
+                console.error('Error handling blowjub reload button:', error);
                 // Inform the user about the error.
                 if (!interaction.replied && !interaction.deferred) {
                     await interaction.reply({ content: 'Failed to reload the image!', ephemeral: true });
