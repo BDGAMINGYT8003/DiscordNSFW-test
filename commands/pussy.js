@@ -84,9 +84,6 @@ class ImagePreloader {
 // Initialize preloader for this category
 const imagePreloader = new ImagePreloader("pussy");
 
-// Cooldown tracking - Even the most delightful views require a moment of pause.
-const cooldowns = new Map();
-
 // Shared function to generate the response payload using Components V2
 const generatePussyPayload = async () => {
     try {
@@ -172,30 +169,6 @@ module.exports = {
 
     // Slash Command Execution
     async slashExecute(interaction) {
-        const userId = interaction.user.id;
-        const now = Date.now();
-        const cooldownAmount = 2000; // 2 seconds of delightful anticipation.
-
-        if (cooldowns.has(userId)) {
-            const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            
-            if (now < expirationTime) {
-                const timeLeft = (expirationTime - now) / 1000;
-                return await interaction.reply({
-                    embeds: [{
-                        color: 0xFF6B6B,
-                        title: '⏰ Patience, lovely viewer.',
-                        description: `You must wait **${timeLeft.toFixed(1)}s** before requesting another delightful view.`,
-                        footer: { text: 'Beauty is worth the wait.' }
-                    }],
-                    ephemeral: true
-                });
-            }
-        }
-
-        cooldowns.set(userId, now);
-        setTimeout(() => cooldowns.delete(userId), cooldownAmount);
-
         // Defer the reply as fetching the image might take a moment.
         await interaction.deferReply({ ephemeral: false }); // Make it visible to everyone.
 
@@ -207,29 +180,6 @@ module.exports = {
 
     // Prefix Command Execution
     async prefixExecute(message, args) {
-        const userId = message.author.id;
-        const now = Date.now();
-        const cooldownAmount = 2000; // 2 seconds of graceful waiting.
-
-        if (cooldowns.has(userId)) {
-            const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            
-            if (now < expirationTime) {
-                const timeLeft = (expirationTime - now) / 1000;
-                return await message.reply({
-                    embeds: [{
-                        color: 0xFF6B6B,
-                        title: '⏰ Patience, lovely viewer.',
-                        description: `You must wait **${timeLeft.toFixed(1)}s** before requesting another delightful view.`,
-                        footer: { text: 'Beauty is worth the wait.' }
-                    }]
-                });
-            }
-        }
-
-        cooldowns.set(userId, now);
-        setTimeout(() => cooldowns.delete(userId), cooldownAmount);
-
         // For prefix commands, we just send the message directly.
         // No deferral needed here unless we want a "Typing..." indicator.
         // Let's keep it simple and send directly.
@@ -249,78 +199,16 @@ module.exports = {
         const action = componentArgs[1]; // e.g., 'reload'
 
         if (componentType === 'button' && action === 'reload') {
-            const userId = interaction.user.id;
-            const now = Date.now();
-            const cooldownAmount = 2000; // 2 seconds of eager anticipation.
-
-            if (cooldowns.has(userId)) {
-                const expirationTime = cooldowns.get(userId) + cooldownAmount;
-                
-                if (now < expirationTime) {
-                    const timeLeft = (expirationTime - now) / 1000;
-                    return await interaction.reply({
-                        embeds: [{
-                            color: 0xFF6B6B,
-                            title: '⏰ Patience, lovely viewer.',
-                            description: `You must wait **${timeLeft.toFixed(1)}s** before requesting another delightful view.`,
-                            footer: { text: 'Beauty is worth the wait.' }
-                        }],
-                        ephemeral: true
-                    });
-                }
-            }
-
-            cooldowns.set(userId, now);
-
             // Handle the reload button click
             try {
                 // Defer the button interaction update, this makes the button show a loading state.
                 await interaction.deferUpdate();
 
-                // Generate a new payload with a fresh image and disabled button.
+                // Generate a new payload with a fresh image.
                 const newPayload = await generatePussyPayload();
-                
-                // Disable the button and start countdown
-                const container = newPayload.components[0];
-                const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'pussy_button_reload');
-                if (actionRow) {
-                    actionRow.components[0].disabled = true;
-                    actionRow.components[0].style = ButtonStyle.Secondary;
-                    actionRow.components[0].label = '🔃 Reload (2s)';
-                }
 
                 // Edit the original message with the new payload.
                 await interaction.editReply(newPayload); // Use editReply for interaction-based messages
-
-                // Start countdown
-                let countdown = 2;
-                const countdownInterval = setInterval(async () => {
-                    countdown--;
-                    if (countdown > 0) {
-                        const updatedPayload = await generatePussyPayload();
-                        const container = updatedPayload.components[0];
-                        const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'pussy_button_reload');
-                        if (actionRow) {
-                            actionRow.components[0].disabled = true;
-                            actionRow.components[0].style = ButtonStyle.Secondary;
-                            actionRow.components[0].label = `🔃 Reload (${countdown}s)`;
-                        }
-                        await interaction.editReply(updatedPayload);
-                    } else {
-                        clearInterval(countdownInterval);
-                        cooldowns.delete(userId);
-                        // Re-enable button with green style
-                        const finalPayload = await generatePussyPayload();
-                        const container = finalPayload.components[0];
-                        const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'pussy_button_reload');
-                        if (actionRow) {
-                            actionRow.components[0].disabled = false;
-                            actionRow.components[0].style = ButtonStyle.Success;
-                            actionRow.components[0].label = '🔃 Reload';
-                        }
-                        await interaction.editReply(finalPayload);
-                    }
-                }, 1000);
 
             } catch (error) {
                 console.error('Error handling reload button:', error);
