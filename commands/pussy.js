@@ -5,15 +5,13 @@ const { NSFW } = require('nsfwhub'); // Import the NSFW library, just as you wan
 
 const nsfw = new NSFW(); // Create an instance.
 
-// Ultra-Robust Advanced Preloading Cache System
+// Advanced Preloading Cache System
 class ImagePreloader {
     constructor(category) {
         this.category = category;
         this.cache = [];
         this.isPreloading = false;
-        this.targetCacheSize = 3; // Increased cache size
-        this.maxRetries = 5; // Maximum retry attempts
-        this.retryDelay = 1000; // Base retry delay in ms
+        this.targetCacheSize = 2;
         this.preloadOnInit();
     }
 
@@ -22,11 +20,8 @@ class ImagePreloader {
         this.isPreloading = true;
         
         try {
-            // Use sequential loading with retry for initial preload
-            for (let i = 0; i < this.targetCacheSize; i++) {
-                await this.fetchAndCacheWithRetry();
-                await new Promise(resolve => setTimeout(resolve, 200)); // Prevent API spam
-            }
+            const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
+            await Promise.all(preloadPromises);
         } catch (error) {
             console.error(`Initial preload failed for ${this.category}:`, error);
         }
@@ -34,119 +29,54 @@ class ImagePreloader {
         this.isPreloading = false;
     }
 
-    async fetchAndCacheWithRetry(retryCount = 0) {
+    async fetchAndCache() {
         try {
-            const data = await this.fetchWithValidation();
-            if (data && data.url) {
+            const data = await nsfw.fetch(this.category);
+            if (data && data.image && data.image.url) {
                 this.cache.push({
-                    url: data.url,
+                    url: data.image.url,
                     timestamp: Date.now()
                 });
-                return true;
             }
-            throw new Error('Invalid data structure received');
         } catch (error) {
-            if (retryCount < this.maxRetries) {
-                console.warn(`Fetch attempt ${retryCount + 1} failed for ${this.category}, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, this.retryDelay * (retryCount + 1)));
-                return this.fetchAndCacheWithRetry(retryCount + 1);
-            }
-            console.error(`All retry attempts failed for ${this.category}:`, error);
-            return false;
+            console.error(`Cache fetch failed for ${this.category}:`, error);
         }
-    }
-
-    async fetchWithValidation() {
-        // Try multiple fetch attempts if API returns undefined
-        for (let attempt = 0; attempt < 3; attempt++) {
-            const data = await nsfw.fetch(this.category);
-            
-            // If data is null/undefined, try again
-            if (!data) {
-                if (attempt < 2) {
-                    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-                    continue;
-                } else {
-                    throw new Error('API returned null/undefined after multiple attempts');
-                }
-            }
-            
-            // Handle different possible API response structures
-            if (data.image && data.image.url) {
-                return { url: data.image.url };
-            } else if (data.url) {
-                return { url: data.url };
-            } else if (typeof data === 'string') {
-                return { url: data };
-            } else if (Array.isArray(data) && data.length > 0) {
-                const item = data[0];
-                if (item.image && item.image.url) {
-                    return { url: item.image.url };
-                } else if (item.url) {
-                    return { url: item.url };
-                }
-            }
-            
-            // If structure is unexpected but not null, try again
-            if (attempt < 2) {
-                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-                continue;
-            }
-        }
-        
-        throw new Error(`Unexpected API response structure after 3 attempts`);
     }
 
     async getImage() {
-        // Try to get from cache first
-        if (this.cache.length > 0) {
-            const cachedImage = this.cache.shift();
-            this.triggerBackgroundPreload();
-            return cachedImage.url;
-        }
-
-        // If cache is empty, fetch with retry mechanism
-        let retryCount = 0;
-        while (retryCount < this.maxRetries) {
+        // If cache is empty, fetch immediately
+        if (this.cache.length === 0) {
             try {
-                const data = await this.fetchWithValidation();
+                const data = await nsfw.fetch(this.category);
                 this.triggerBackgroundPreload(); // Start preloading for next time
-                return data.url;
+                return data.image.url;
             } catch (error) {
-                retryCount++;
-                if (retryCount >= this.maxRetries) {
-                    throw new Error(`Failed to fetch image after ${this.maxRetries} attempts: ${error.message}`);
-                }
-                console.warn(`Fetch attempt ${retryCount} failed for ${this.category}, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, this.retryDelay * retryCount));
+                throw error;
             }
         }
+
+        // Get cached image
+        const cachedImage = this.cache.shift();
+        
+        // Immediately trigger background preload to maintain cache
+        this.triggerBackgroundPreload();
+        
+        return cachedImage.url;
     }
 
     triggerBackgroundPreload() {
         if (this.isPreloading) return;
         
-        // Enhanced background preloading with better error handling
+        // Preload in background without blocking
         setImmediate(async () => {
-            this.isPreloading = true;
-            
-            try {
-                while (this.cache.length < this.targetCacheSize) {
-                    const success = await this.fetchAndCacheWithRetry();
-                    if (!success) {
-                        // If fetching fails, wait longer before trying again
-                        await new Promise(resolve => setTimeout(resolve, 5000));
-                        break; // Exit the loop to prevent infinite retries
-                    }
-                    
-                    // Small delay between successful fetches
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                }
-            } catch (error) {
-                console.error(`Background preload error for ${this.category}:`, error);
+            while (this.cache.length < this.targetCacheSize && !this.isPreloading) {
+                this.isPreloading = true;
+                await this.fetchAndCache();
+                this.isPreloading = false;
+                
+                // Small delay to prevent API spam
+                await new Promise(resolve => setTimeout(resolve, 100));
             }
-            
-            this.isPreloading = false;
         });
     }
 }
