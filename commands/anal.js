@@ -15,8 +15,7 @@ const {
     StringSelectMenuOptionBuilder,
 } = require('discord.js');
 
-// Use the new NSFW library
-const { NSFW } = require('@jcauman23/discordnsfw');
+const { NSFW } = require('nsfwhub');
 const fs = require('fs');
 const path = require('path');
 
