@@ -107,29 +107,53 @@ class ImagePreloader {
     }
 
     async fetchAndCache() {
-        try {
-            const data = await nsfw.fetch(this.category);
-            if (data && data.image && data.image.url) {
-                this.cache.push({
-                    url: data.image.url,
-                    timestamp: Date.now()
-                });
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                const data = await nsfw.fetch(this.category);
+                if (data && data.image && data.image.url) {
+                    this.cache.push({
+                        url: data.image.url,
+                        timestamp: Date.now()
+                    });
+                    return; // Success, exit retry loop
+                }
+            } catch (error) {
+                console.error(`Cache fetch failed for ${this.category} (${retries} retries left):`, error);
             }
-        } catch (error) {
-            console.error(`Cache fetch failed for ${this.category}:`, error);
+            
+            retries--;
+            if (retries > 0) {
+                // Wait before retrying (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
+            }
         }
     }
 
     async getImage() {
-        // If cache is empty, fetch immediately
+        // If cache is empty, try to fetch with retries
         if (this.cache.length === 0) {
-            try {
-                const data = await nsfw.fetch(this.category);
-                this.triggerBackgroundPreload(); // Start preloading for next time
-                return data.image.url;
-            } catch (error) {
-                throw error;
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    const data = await nsfw.fetch(this.category);
+                    if (data && data.image && data.image.url) {
+                        this.triggerBackgroundPreload(); // Start preloading for next time
+                        return data.image.url;
+                    }
+                } catch (error) {
+                    console.error(`Direct fetch failed for ${this.category} (${retries} retries left):`, error);
+                }
+                
+                retries--;
+                if (retries > 0) {
+                    // Wait before retrying (exponential backoff)
+                    await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
+                }
             }
+            
+            // If all retries failed, throw error
+            throw new Error(`Failed to fetch image after multiple attempts`);
         }
 
         // Get cached image
@@ -164,10 +188,26 @@ const imagePreloader = new ImagePreloader("anal");
 // Shared function to generate the response payload using Components V2
 const generateAnalPayload = async (cachedUrl = null) => {
     try {
-        const imageUrl = cachedUrl || await imagePreloader.getImage(); // Ultra-fast preloaded image
+        let imageUrl = cachedUrl;
+        
+        // Only try to fetch new image if no cached URL provided
+        if (!imageUrl) {
+            try {
+                imageUrl = await imagePreloader.getImage();
+            } catch (fetchError) {
+                console.error('Failed to fetch new image, trying cached URL:', fetchError);
+                // Try to use last cached URL as fallback
+                const cache = loadCache();
+                imageUrl = cache.lastAnalUrl;
+                
+                if (!imageUrl) {
+                    throw new Error('No cached image available and API fetch failed');
+                }
+            }
+        }
 
         // Cache the URL for reuse during cooldown
-        if (!cachedUrl) {
+        if (!cachedUrl && imageUrl) {
             const cache = loadCache();
             cache.lastAnalUrl = imageUrl;
             saveCache(cache);
@@ -373,10 +413,19 @@ module.exports = {
                 }
 
                 // Generate a new payload with a fresh image after countdown
-                const newPayload = await generateAnalPayload();
-
-                // Edit the original message.
-                await interaction.editReply(newPayload);
+                try {
+                    const newPayload = await generateAnalPayload();
+                    await interaction.editReply(newPayload);
+                } catch (payloadError) {
+                    console.error('Failed to generate new payload, keeping current image:', payloadError);
+                    // If we can't get a new image, just restore the original with working button
+                    if (cachedUrl) {
+                        const fallbackPayload = await generateAnalPayload(cachedUrl);
+                        await interaction.editReply(fallbackPayload);
+                    } else {
+                        throw payloadError; // Re-throw if no fallback available
+                    }
+                }
 
             } catch (error) {
                 console.error('Error handling anal reload button:', error);
