@@ -283,33 +283,32 @@ module.exports = {
                 // Edit the original message.
                 await interaction.editReply(newPayload);
 
-                // Start countdown
+                // Start countdown - reuse current payload to avoid unnecessary API calls
                 let countdown = 2;
                 const countdownInterval = setInterval(async () => {
                     countdown--;
                     if (countdown > 0) {
-                        const updatedPayload = await generateBoobsPayload();
-                        const container = updatedPayload.components[0];
+                        // Reuse the current payload, only update button
+                        const container = newPayload.components[0];
                         const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
                         if (actionRow) {
                             actionRow.components[0].disabled = true;
                             actionRow.components[0].style = ButtonStyle.Secondary;
                             actionRow.components[0].label = `🔃 Reload (${countdown}s)`;
                         }
-                        await interaction.editReply(updatedPayload);
+                        await interaction.editReply(newPayload);
                     } else {
                         clearInterval(countdownInterval);
                         cooldowns.delete(userId);
                         // Re-enable button with green style
-                        const finalPayload = await generateBoobsPayload();
-                        const container = finalPayload.components[0];
+                        const container = newPayload.components[0];
                         const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
                         if (actionRow) {
                             actionRow.components[0].disabled = false;
                             actionRow.components[0].style = ButtonStyle.Success;
                             actionRow.components[0].label = '🔃 Reload';
                         }
-                        await interaction.editReply(finalPayload);
+                        await interaction.editReply(newPayload);
                     }
                 }, 1000);
 
