@@ -5,11 +5,89 @@ const { NSFW } = require('nsfwhub'); // Import the NSFW library.
 
 const nsfw = new NSFW(); // Create an instance.
 
+// Advanced Preloading Cache System
+class ImagePreloader {
+    constructor(category) {
+        this.category = category;
+        this.cache = [];
+        this.isPreloading = false;
+        this.targetCacheSize = 2;
+        this.preloadOnInit();
+    }
+
+    async preloadOnInit() {
+        if (this.isPreloading) return;
+        this.isPreloading = true;
+        
+        try {
+            const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
+            await Promise.all(preloadPromises);
+        } catch (error) {
+            console.error(`Initial preload failed for ${this.category}:`, error);
+        }
+        
+        this.isPreloading = false;
+    }
+
+    async fetchAndCache() {
+        try {
+            const data = await nsfw.fetch(this.category);
+            if (data && data.image && data.image.url) {
+                this.cache.push({
+                    url: data.image.url,
+                    timestamp: Date.now()
+                });
+            }
+        } catch (error) {
+            console.error(`Cache fetch failed for ${this.category}:`, error);
+        }
+    }
+
+    async getImage() {
+        // If cache is empty, fetch immediately
+        if (this.cache.length === 0) {
+            try {
+                const data = await nsfw.fetch(this.category);
+                this.triggerBackgroundPreload(); // Start preloading for next time
+                return data.image.url;
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        // Get cached image
+        const cachedImage = this.cache.shift();
+        
+        // Immediately trigger background preload to maintain cache
+        this.triggerBackgroundPreload();
+        
+        return cachedImage.url;
+    }
+
+    triggerBackgroundPreload() {
+        if (this.isPreloading) return;
+        
+        // Preload in background without blocking
+        setImmediate(async () => {
+            while (this.cache.length < this.targetCacheSize && !this.isPreloading) {
+                this.isPreloading = true;
+                await this.fetchAndCache();
+                this.isPreloading = false;
+                
+                // Small delay to prevent API spam
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        });
+    }
+}
+
+// Initialize preloader for this category
+const imagePreloader = new ImagePreloader("bdsm");
+
 // Shared function to generate the response payload using Components V2
 const generateBdsmPayload = async () => {
     try {
-        const data = await nsfw.fetch("bdsm"); // Fetching the tied-up fun.
-        const imageUrl = data.image.url;
+        const imageUrl = await imagePreloader.getImage(); // Ultra-fast preloaded image
 
         // Wrapping it in a Container for that signature formal flair.
         const container = new ContainerBuilder()
