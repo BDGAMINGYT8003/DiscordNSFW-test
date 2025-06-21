@@ -1,9 +1,58 @@
+
 // commands/boobs.js
 
-const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorSpacingSize } = require('discord.js');
+const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorSpacingSize, EmbedBuilder } = require('discord.js');
 const { NSFW } = require('nsfwhub'); // Import the NSFW library.
+const fs = require('fs').promises;
+const path = require('path');
 
 const nsfw = new NSFW(); // Create an instance.
+
+// Cooldown and cache management
+const COOLDOWN_DURATION = 2000; // 2 seconds
+const cooldownFile = path.join(__dirname, '..', 'storage', 'cooldown.json');
+const cacheFile = path.join(__dirname, '..', 'storage', 'cache.json');
+
+const readJsonFile = async (filePath) => {
+    try {
+        const data = await fs.readFile(filePath, 'utf8');
+        return JSON.parse(data);
+    } catch {
+        return {};
+    }
+};
+
+const writeJsonFile = async (filePath, data) => {
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+};
+
+const isOnCooldown = async (userId, commandName) => {
+    const cooldowns = await readJsonFile(cooldownFile);
+    const userCooldowns = cooldowns[userId] || {};
+    const lastUsed = userCooldowns[commandName];
+    
+    if (!lastUsed) return false;
+    
+    return Date.now() - lastUsed < COOLDOWN_DURATION;
+};
+
+const setCooldown = async (userId, commandName) => {
+    const cooldowns = await readJsonFile(cooldownFile);
+    if (!cooldowns[userId]) cooldowns[userId] = {};
+    cooldowns[userId][commandName] = Date.now();
+    await writeJsonFile(cooldownFile, cooldowns);
+};
+
+const getCachedImage = async (commandName) => {
+    const cache = await readJsonFile(cacheFile);
+    return cache[commandName];
+};
+
+const setCachedImage = async (commandName, imageUrl) => {
+    const cache = await readJsonFile(cacheFile);
+    cache[commandName] = imageUrl;
+    await writeJsonFile(cacheFile, cache);
+};
 
 // Advanced Preloading Cache System
 class ImagePreloader {
@@ -85,9 +134,20 @@ class ImagePreloader {
 const imagePreloader = new ImagePreloader("boobs");
 
 // Shared function to generate the response payload using Components V2
-const generateBoobsPayload = async () => {
+const generateBoobsPayload = async (useCache = false) => {
     try {
-        const imageUrl = await imagePreloader.getImage(); // Ultra-fast preloaded image
+        let imageUrl;
+        
+        if (useCache) {
+            imageUrl = await getCachedImage('boobs');
+            if (!imageUrl) {
+                imageUrl = await imagePreloader.getImage();
+                await setCachedImage('boobs', imageUrl);
+            }
+        } else {
+            imageUrl = await imagePreloader.getImage(); // Ultra-fast preloaded image
+            await setCachedImage('boobs', imageUrl);
+        }
 
         // Wrapping it in a Container for that signature formal flair.
         const container = new ContainerBuilder()
@@ -159,6 +219,49 @@ const generateBoobsPayload = async () => {
     }
 };
 
+const updateButtonWithCountdown = async (interaction, remainingTime) => {
+    const cachedImageUrl = await getCachedImage('boobs');
+    
+    if (!cachedImageUrl) return;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFF007F)
+        .addTextDisplayComponents(
+            textDisplay => textDisplay
+                .setContent('### Behold! A sight to behold.')
+        )
+        .addSeparatorComponents(
+            separator => separator
+                .setSpacing(SeparatorSpacingSize.Large)
+        )
+        .addMediaGalleryComponents(
+            mediaGallery => mediaGallery
+                .addItems(
+                    mediaGalleryItem => mediaGalleryItem
+                        .setURL(cachedImageUrl)
+                        .setDescription('Nature\'s bounty.')
+                )
+        );
+
+    const reloadButton = new ButtonBuilder()
+        .setCustomId('boobs_button_reload')
+        .setLabel(`🔃 Reload (${Math.ceil(remainingTime / 1000)}s)`)
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(true);
+
+    const actionRow = new ActionRowBuilder()
+        .addComponents(reloadButton);
+
+    container.addActionRowComponents(actionRow);
+
+    const payload = {
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+    };
+
+    await interaction.editReply(payload);
+};
+
 module.exports = {
     // Slash Command Definition
     data: new SlashCommandBuilder()
@@ -167,6 +270,20 @@ module.exports = {
 
     // Slash Command Execution
     async slashExecute(interaction) {
+        const userId = interaction.user.id;
+        
+        if (await isOnCooldown(userId, 'boobs')) {
+            const embed = new EmbedBuilder()
+                .setColor(0xFF0000)
+                .setTitle('⏰ Easy there, admirer!')
+                .setDescription('Nature\'s bounty requires a moment to reveal itself again. Please wait before requesting another magnificent view.')
+                .setTimestamp();
+            
+            return await interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        await setCooldown(userId, 'boobs');
+
         // Defer the reply.
         await interaction.deferReply({ ephemeral: false });
 
@@ -178,6 +295,20 @@ module.exports = {
 
     // Prefix Command Execution
     async prefixExecute(message, args) {
+        const userId = message.author.id;
+        
+        if (await isOnCooldown(userId, 'boobs')) {
+            const embed = new EmbedBuilder()
+                .setColor(0xFF0000)
+                .setTitle('⏰ Easy there, admirer!')
+                .setDescription('Nature\'s bounty requires a moment to reveal itself again. Please wait before requesting another magnificent view.')
+                .setTimestamp();
+            
+            return await message.reply({ embeds: [embed] });
+        }
+
+        await setCooldown(userId, 'boobs');
+
         // Send the message directly for prefix commands.
         const payload = await generateBoobsPayload();
         await message.channel.send(payload);
@@ -190,16 +321,48 @@ module.exports = {
         const action = componentArgs[1];
 
         if (componentType === 'button' && action === 'reload') {
+            const userId = interaction.user.id;
+            
+            if (await isOnCooldown(userId, 'boobs')) {
+                const embed = new EmbedBuilder()
+                    .setColor(0xFF0000)
+                    .setTitle('⏰ Patience, eager observer!')
+                    .setDescription('The beautiful assets need time to prepare for their next presentation. Wait a moment before requesting another spectacular display.')
+                    .setTimestamp();
+                
+                return await interaction.reply({ embeds: [embed], ephemeral: true });
+            }
+
             // Handle the reload button click
             try {
+                await setCooldown(userId, 'boobs');
+
                 // Defer the button interaction update.
                 await interaction.deferUpdate();
 
-                // Generate a new payload with a fresh image.
-                const newPayload = await generateBoobsPayload();
-
-                // Edit the original message.
-                await interaction.editReply(newPayload);
+                // Start countdown
+                const countdownInterval = setInterval(async () => {
+                    const cooldowns = await readJsonFile(cooldownFile);
+                    const userCooldowns = cooldowns[userId] || {};
+                    const lastUsed = userCooldowns['boobs'];
+                    
+                    if (!lastUsed) {
+                        clearInterval(countdownInterval);
+                        return;
+                    }
+                    
+                    const elapsed = Date.now() - lastUsed;
+                    const remaining = COOLDOWN_DURATION - elapsed;
+                    
+                    if (remaining <= 0) {
+                        clearInterval(countdownInterval);
+                        // Generate a new payload with a fresh image.
+                        const newPayload = await generateBoobsPayload();
+                        await interaction.editReply(newPayload);
+                    } else {
+                        await updateButtonWithCountdown(interaction, remaining);
+                    }
+                }, 1000);
 
             } catch (error) {
                 console.error('Error handling boobs reload button:', error);
