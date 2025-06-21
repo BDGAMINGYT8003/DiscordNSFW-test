@@ -118,7 +118,7 @@ const generateBoobsPayload = async () => {
         const reloadButton = new ButtonBuilder()
             .setCustomId('boobs_button_reload') // Unique ID for this command's reload button.
             .setLabel('🔃 Reload')
-            .setStyle(ButtonStyle.Primary);
+            .setStyle(ButtonStyle.Success);
 
         // Put the button in an Action Row.
         const actionRow = new ActionRowBuilder()
@@ -262,55 +262,18 @@ module.exports = {
             }
 
             cooldowns.set(userId, now);
+            setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
             // Handle the reload button click
             try {
                 // Defer the button interaction update.
                 await interaction.deferUpdate();
 
-                // Generate a new payload with a fresh image and disabled button.
+                // Generate a new payload with a fresh image.
                 const newPayload = await generateBoobsPayload();
-                
-                // Disable the button and start countdown
-                const container = newPayload.components[0];
-                const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
-                if (actionRow) {
-                    actionRow.components[0].disabled = true;
-                    actionRow.components[0].style = ButtonStyle.Secondary;
-                    actionRow.components[0].label = '🔃 Reload (2s)';
-                }
 
                 // Edit the original message.
                 await interaction.editReply(newPayload);
-
-                // Start countdown - reuse current payload to avoid unnecessary API calls
-                let countdown = 2;
-                const countdownInterval = setInterval(async () => {
-                    countdown--;
-                    if (countdown > 0) {
-                        // Reuse the current payload, only update button
-                        const container = newPayload.components[0];
-                        const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
-                        if (actionRow) {
-                            actionRow.components[0].disabled = true;
-                            actionRow.components[0].style = ButtonStyle.Secondary;
-                            actionRow.components[0].label = `🔃 Reload (${countdown}s)`;
-                        }
-                        await interaction.editReply(newPayload);
-                    } else {
-                        clearInterval(countdownInterval);
-                        cooldowns.delete(userId);
-                        // Re-enable button with green style
-                        const container = newPayload.components[0];
-                        const actionRow = container.components.find(c => c.components && c.components[0].custom_id === 'boobs_button_reload');
-                        if (actionRow) {
-                            actionRow.components[0].disabled = false;
-                            actionRow.components[0].style = ButtonStyle.Success;
-                            actionRow.components[0].label = '🔃 Reload';
-                        }
-                        await interaction.editReply(newPayload);
-                    }
-                }, 1000);
 
             } catch (error) {
                 console.error('Error handling boobs reload button:', error);
