@@ -1,4 +1,4 @@
-// commands/boobs.js
+// commands/feet.js
 
 const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
 const { NSFW } = require('nsfwhub'); // Import the NSFW library
@@ -6,9 +6,11 @@ const { NSFW } = require('nsfwhub'); // Import the NSFW library
 const nsfw = new NSFW(); // Create an instance.
 
 // --- Utility Functions for Payloads ---
+
+// Payload for NSFW channel restriction
 const createNsfwOnlyPayload = () => {
     const container = new ContainerBuilder()
-        .setAccentColor(0xFFCC00)
+        .setAccentColor(0xFFCC00) // Warning yellow
         .addTextDisplayComponents(
             textDisplay => textDisplay.setContent('### 🔞 NSFW Channel Required'),
             textDisplay => textDisplay.setContent('This command can only be used in channels marked as NSFW. Please ensure you are in an appropriate channel.')
@@ -17,28 +19,30 @@ const createNsfwOnlyPayload = () => {
     return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
 };
 
+// Payload for cooldown message
 const createCooldownPayload = (timeLeft) => {
     const container = new ContainerBuilder()
-        .setAccentColor(0xFF6B6B)
+        .setAccentColor(0xFF6B6B) // Soft red
         .addTextDisplayComponents(
-            textDisplay => textDisplay.setContent('### ⏰ Patience, Devoted Admirer'),
-            textDisplay => textDisplay.setContent(`You must wait **${timeLeft.toFixed(1)}s** before beholding another sight. Beauty demands reverence.`)
+            textDisplay => textDisplay.setContent('### ⏰ Patience, Lovely Viewer'),
+            textDisplay => textDisplay.setContent(`You must wait **${timeLeft.toFixed(1)}s** before requesting another delightful view. Beauty is worth the wait.`)
         )
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
     return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
 };
 
+// Payload for API error
 const createApiErrorPayload = (category) => {
     const container = new ContainerBuilder()
-        .setAccentColor(0xFF0000)
+        .setAccentColor(0xFF0000) // Error red
         .addTextDisplayComponents(
             textDisplay => textDisplay.setContent('### 📛 API Error'),
-            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. Looks like they're hiding right now. Please try again later.`)
+            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. The API might be temporarily unavailable or shy. Please try again later.`)
         )
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true }; // Ephemeral for general errors
 };
-// --- End Utility Functions ---
+
 
 // Advanced Preloading Cache System
 class ImagePreloader {
@@ -46,7 +50,7 @@ class ImagePreloader {
         this.category = category;
         this.cache = [];
         this.isPreloading = false;
-        this.targetCacheSize = 2;
+        this.targetCacheSize = 2; // Preload 2 images
         this.preloadOnInit();
     }
 
@@ -111,29 +115,29 @@ class ImagePreloader {
     }
 }
 
-const imagePreloader = new ImagePreloader("boobs");
-const cooldowns = new Map();
+const imagePreloader = new ImagePreloader("feet");
+const cooldowns = new Map(); // UserID -> timestamp
 
 // Main function to generate the image payload
-const generateBoobsPayload = async (interactionOrMessage) => {
+const generateFeetPayload = async (interactionOrMessage) => {
     try {
         const imageUrl = await imagePreloader.getImage();
 
         const container = new ContainerBuilder()
-            .setAccentColor(0xFF69B4) // Hot pink for boobs
+            .setAccentColor(0xFFA07A) // Light Salmon for feet
             .addTextDisplayComponents(
-                textDisplay => textDisplay.setContent('### Behold! A Magnificent Pair! 🍈🍈')
+                textDisplay => textDisplay.setContent('### Delicate Feet for Your Viewing Pleasure! 🦶')
             )
             .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small))
             .addMediaGalleryComponents(
                 mediaGallery => mediaGallery.addItems(
-                    item => item.setURL(imageUrl).setDescription('Nature\'s glorious bounty on display.')
+                    item => item.setURL(imageUrl).setDescription('A fine presentation of feet.')
                 )
             );
 
         const reloadButton = new ButtonBuilder()
-            .setCustomId('boobs_button_reload')
-            .setLabel('🍈 More Assets!')
+            .setCustomId('feet_button_reload')
+            .setLabel('🦶 More Feet!')
             .setStyle(ButtonStyle.Success);
 
         const actionRow = new ActionRowBuilder().addComponents(reloadButton);
@@ -141,8 +145,8 @@ const generateBoobsPayload = async (interactionOrMessage) => {
 
         return { components: [container], flags: MessageFlags.IsComponentsV2 };
     } catch (error) {
-        console.error('Error fetching boobs image:', error);
-        const errorPayload = createApiErrorPayload("boobs");
+        console.error('Error fetching feet image:', error);
+        const errorPayload = createApiErrorPayload("feet");
         if (interactionOrMessage && interactionOrMessage.replied !== true && interactionOrMessage.deferred !== true) {
             await interactionOrMessage.reply(errorPayload).catch(e => console.error("Error sending API error reply:", e));
         } else if (interactionOrMessage) {
@@ -154,8 +158,8 @@ const generateBoobsPayload = async (interactionOrMessage) => {
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('boobs')
-        .setDescription('Presents a pair of fine mammary assets. 🍈🍈 (NSFW channels only)'),
+        .setName('feet')
+        .setDescription('Delivers delightful images of feet. 🦶 (NSFW channels only)'),
 
     async slashExecute(interaction) {
         if (!interaction.channel || !interaction.channel.nsfw) {
@@ -177,7 +181,7 @@ module.exports = {
         setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
         await interaction.deferReply({ ephemeral: false });
-        const payload = await generateBoobsPayload(interaction);
+        const payload = await generateFeetPayload(interaction);
         await interaction.editReply(payload);
     },
 
@@ -202,7 +206,7 @@ module.exports = {
         cooldowns.set(userId, now);
         setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-        const payload = await generateBoobsPayload(message);
+        const payload = await generateFeetPayload(message);
         await message.channel.send(payload);
     },
 
@@ -221,7 +225,7 @@ module.exports = {
         if (componentType === 'button' && action === 'reload') {
             const userId = interaction.user.id;
             const now = Date.now();
-            const cooldownAmount = 2000;
+            const cooldownAmount = 2000; // Shorter cooldown for reload
 
             if (cooldowns.has(userId)) {
                 const expirationTime = cooldowns.get(userId) + cooldownAmount;
@@ -235,10 +239,10 @@ module.exports = {
 
             try {
                 await interaction.deferUpdate();
-                const newPayload = await generateBoobsPayload(interaction);
+                const newPayload = await generateFeetPayload(interaction);
                 await interaction.editReply(newPayload);
             } catch (error) {
-                console.error('Error handling boobs reload button:', error);
+                console.error('Error handling feet reload button:', error);
                 if (!interaction.replied && !interaction.deferred) {
                     await interaction.followUp({ components: [new ContainerBuilder().setAccentColor(0xFF0000).addTextDisplayComponents(td => td.setContent('Failed to reload image.'))], flags: MessageFlags.IsComponentsV2, ephemeral: true }).catch(e => console.error("Component error followUp:", e));
                 }

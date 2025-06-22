@@ -1,9 +1,45 @@
 // commands/anal.js
 
-const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorSpacingSize } = require('discord.js');
-const { NSFW } = require('nsfwhub'); // Import the NSFW library.
+const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { NSFW } = require('nsfwhub'); // Import the NSFW library
 
 const nsfw = new NSFW(); // Create an instance.
+
+// --- Utility Functions for Payloads (Copied from pussy.js, ensure these are consistent or refactored if used across many files) ---
+const createNsfwOnlyPayload = () => {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFFCC00)
+        .addTextDisplayComponents(
+            textDisplay => textDisplay.setContent('### 🔞 NSFW Channel Required'),
+            textDisplay => textDisplay.setContent('This command can only be used in channels marked as NSFW. Please ensure you are in an appropriate channel.')
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+};
+
+const createCooldownPayload = (timeLeft) => {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFF6B6B)
+        .addTextDisplayComponents(
+            textDisplay => textDisplay.setContent('### ⏰ Patience, Dear Explorer'),
+            textDisplay => textDisplay.setContent(`You must wait **${timeLeft.toFixed(1)}s** before venturing down this path again. Good things come to those who wait.`)
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+};
+
+const createApiErrorPayload = (category) => {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFF0000)
+        .addTextDisplayComponents(
+            textDisplay => textDisplay.setContent('### 📛 API Error'),
+            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. This particular tunnel seems blocked right now. Please try again later.`)
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+};
+// --- End Utility Functions ---
+
 
 // Advanced Preloading Cache System
 class ImagePreloader {
@@ -18,14 +54,12 @@ class ImagePreloader {
     async preloadOnInit() {
         if (this.isPreloading) return;
         this.isPreloading = true;
-        
         try {
             const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
             await Promise.all(preloadPromises);
         } catch (error) {
             console.error(`Initial preload failed for ${this.category}:`, error);
         }
-        
         this.isPreloading = false;
     }
 
@@ -33,10 +67,7 @@ class ImagePreloader {
         try {
             const data = await nsfw.fetch(this.category);
             if (data && data.image && data.image.url) {
-                this.cache.push({
-                    url: data.image.url,
-                    timestamp: Date.now()
-                });
+                this.cache.push({ url: data.image.url, timestamp: Date.now() });
             }
         } catch (error) {
             console.error(`Cache fetch failed for ${this.category}:`, error);
@@ -44,247 +75,175 @@ class ImagePreloader {
     }
 
     async getImage() {
-        // If cache is empty, fetch immediately
         if (this.cache.length === 0) {
             try {
                 const data = await nsfw.fetch(this.category);
-                this.triggerBackgroundPreload(); // Start preloading for next time
+                 if (!data || !data.image || !data.image.url) {
+                    console.error(`API returned invalid data for ${this.category}:`, data);
+                    throw new Error('Invalid API response');
+                }
+                this.triggerBackgroundPreload();
                 return data.image.url;
             } catch (error) {
+                console.error(`Direct fetch failed for ${this.category}:`, error);
                 throw error;
             }
         }
-
-        // Get cached image
         const cachedImage = this.cache.shift();
-        
-        // Immediately trigger background preload to maintain cache
         this.triggerBackgroundPreload();
-        
         return cachedImage.url;
     }
 
     triggerBackgroundPreload() {
         if (this.isPreloading) return;
-        
-        // Preload in background without blocking
         setImmediate(async () => {
-            while (this.cache.length < this.targetCacheSize && !this.isPreloading) {
-                this.isPreloading = true;
-                await this.fetchAndCache();
+            this.isPreloading = true;
+            try {
+                while (this.cache.length < this.targetCacheSize) {
+                    await this.fetchAndCache();
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            } catch (error) {
+                console.error(`Background preload error for ${this.category}:`, error);
+            } finally {
                 this.isPreloading = false;
-                
-                // Small delay to prevent API spam
-                await new Promise(resolve => setTimeout(resolve, 100));
             }
         });
     }
 }
 
-// Initialize preloader for this category
 const imagePreloader = new ImagePreloader("anal");
-
-// Cooldown tracking - Because even the most eager need a moment to breathe.
 const cooldowns = new Map();
 
-// Shared function to generate the response payload using Components V2
-const generateAnalPayload = async () => {
+// Main function to generate the image payload
+const generateAnalPayload = async (interactionOrMessage) => {
     try {
-        const imageUrl = await imagePreloader.getImage(); // Ultra-fast preloaded image
+        const imageUrl = await imagePreloader.getImage();
 
-        // Wrapping it in a Container for that signature formal flair.
         const container = new ContainerBuilder()
-            .setAccentColor(0xFF007F) // Keeping the lovely color.
-            .addTextDisplayComponents( // Add a title
-                textDisplay => textDisplay
-                    .setContent('### Behold! A journey to the rear.') // Markdown for a nice heading
+            .setAccentColor(0x6A4595) // A deep purple for anal
+            .addTextDisplayComponents(
+                textDisplay => textDisplay.setContent('### Behold! A Journey to the Rear... 🍑')
             )
-             // Add a separator for spacing
-            .addSeparatorComponents(
-                separator => separator
-                    .setSpacing(SeparatorSpacingSize.Large) // Large spacing, as corrected.
-            )
-            .addMediaGalleryComponents( // The main attraction!
-                mediaGallery => mediaGallery
-                    .addItems( // Add the image/media from the fetched URL
-                        mediaGalleryItem => mediaGalleryItem
-                            // Assuming nsfwhub provides a direct link that discord can handle
-                            .setURL(imageUrl)
-                            .setDescription('A path well-trodden.') // Alt text.
-                    )
+            .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small))
+            .addMediaGalleryComponents(
+                mediaGallery => mediaGallery.addItems(
+                    item => item.setURL(imageUrl).setDescription('A path well-trodden.')
+                )
             );
 
-        // Add the Reload button.
         const reloadButton = new ButtonBuilder()
-            .setCustomId('anal_button_reload') // Unique ID for this command's reload button.
-            .setLabel('🔃 Reload')
-            .setStyle(ButtonStyle.Success);
+            .setCustomId('anal_button_reload')
+            .setLabel('🔃 Explore Deeper!')
+            .setStyle(ButtonStyle.Danger); // Danger for the daring!
 
-        // Put the button in an Action Row.
-        const actionRow = new ActionRowBuilder()
-            .addComponents(reloadButton);
-
-        // Add the action row to the container.
+        const actionRow = new ActionRowBuilder().addComponents(reloadButton);
         container.addActionRowComponents(actionRow);
 
-        // Construct the final message payload with Components V2 flag.
-        const payload = {
-            components: [container], // Send the container.
-            flags: MessageFlags.IsComponentsV2, // MANDATORY for CV2 components
-            // content and embeds are DISABLED here.
-        };
-
-        return payload;
-
+        return { components: [container], flags: MessageFlags.IsComponentsV2 };
     } catch (error) {
         console.error('Error fetching anal image:', error);
-        // Return an error payload using CV2 components.
-        const errorContainer = new ContainerBuilder()
-            .setAccentColor(0xFF0000)
-            .addTextDisplayComponents(
-                textDisplay => textDisplay
-                    .setContent('### Error')
-            )
-             .addSeparatorComponents(
-                separator => separator
-                    .setSpacing(SeparatorSpacingSize.Large) // Large spacing
-            )
-            .addTextDisplayComponents(
-                textDisplay => textDisplay
-                    .setContent('Failed to fetch the requested image. This particular tunnel seems blocked right now.')
-            );
-
-         const errorPayload = {
-            components: [errorContainer],
-            flags: MessageFlags.IsComponentsV2,
-         };
-         return errorPayload;
+        const errorPayload = createApiErrorPayload("anal");
+        if (interactionOrMessage && interactionOrMessage.replied !== true && interactionOrMessage.deferred !== true) {
+            await interactionOrMessage.reply(errorPayload).catch(e => console.error("Error sending API error reply:", e));
+        } else if (interactionOrMessage) {
+            await interactionOrMessage.followUp(errorPayload).catch(e => console.error("Error sending API error followUp:", e));
+        }
+        return errorPayload;
     }
 };
 
 module.exports = {
-    // Slash Command Definition
     data: new SlashCommandBuilder()
         .setName('anal')
-        .setDescription('Explores a different kind of entry.'), // A suggestive description.
+        .setDescription('Explores a different kind of entry. 🍑 (NSFW channels only)'),
 
-    // Slash Command Execution
     async slashExecute(interaction) {
+        if (!interaction.channel || !interaction.channel.nsfw) {
+            return interaction.reply(createNsfwOnlyPayload());
+        }
+
         const userId = interaction.user.id;
         const now = Date.now();
-        const cooldownAmount = 2000; // 2 seconds of restraint.
+        const cooldownAmount = 3000; // 3 seconds
 
         if (cooldowns.has(userId)) {
             const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            
             if (now < expirationTime) {
                 const timeLeft = (expirationTime - now) / 1000;
-                return await interaction.reply({
-                    embeds: [{
-                        color: 0xFF6B6B,
-                        title: '⏰ Patience, dear explorer.',
-                        description: `You must wait **${timeLeft.toFixed(1)}s** before venturing down this path again.`,
-                        footer: { text: 'Good things come to those who wait.' }
-                    }],
-                    ephemeral: true
-                });
+                return interaction.reply(createCooldownPayload(timeLeft));
             }
         }
-
         cooldowns.set(userId, now);
         setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-        // Defer the reply.
         await interaction.deferReply({ ephemeral: false });
-
-        const payload = await generateAnalPayload();
-
-        // Edit the deferred reply.
+        const payload = await generateAnalPayload(interaction);
         await interaction.editReply(payload);
     },
 
-    // Prefix Command Execution
     async prefixExecute(message, args) {
+        if (!message.channel || !message.channel.nsfw) {
+            return message.reply(createNsfwOnlyPayload());
+        }
+
         const userId = message.author.id;
         const now = Date.now();
-        const cooldownAmount = 2000; // 2 seconds of contemplation.
+        const cooldownAmount = 3000; // 3 seconds
 
         if (cooldowns.has(userId)) {
             const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            
             if (now < expirationTime) {
                 const timeLeft = (expirationTime - now) / 1000;
-                return await message.reply({
-                    embeds: [{
-                        color: 0xFF6B6B,
-                        title: '⏰ Patience, dear explorer.',
-                        description: `You must wait **${timeLeft.toFixed(1)}s** before venturing down this path again.`,
-                        footer: { text: 'Good things come to those who wait.' }
-                    }]
-                });
+                const cooldownPayload = createCooldownPayload(timeLeft);
+                cooldownPayload.ephemeral = false;
+                return message.reply(cooldownPayload);
             }
         }
-
         cooldowns.set(userId, now);
         setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-        // Send the message directly for prefix commands.
-        const payload = await generateAnalPayload();
+        const payload = await generateAnalPayload(message);
         await message.channel.send(payload);
     },
 
-    // Component Handling (e.g., Button Clicks)
     async handleComponent(interaction, componentArgs) {
-         // componentArgs will contain parts of the customId after the command name, e.g., ['button', 'reload']
+        if (!interaction.channel || !interaction.channel.nsfw) {
+            if (!interaction.replied && !interaction.deferred) {
+                return interaction.reply(createNsfwOnlyPayload());
+            } else {
+                return interaction.followUp(createNsfwOnlyPayload()).catch(e => console.error("Component NSFW check followUp error:", e));
+            }
+        }
+
         const componentType = componentArgs[0];
         const action = componentArgs[1];
 
         if (componentType === 'button' && action === 'reload') {
             const userId = interaction.user.id;
             const now = Date.now();
-            const cooldownAmount = 2000; // 2 seconds of anticipation.
+            const cooldownAmount = 2000;
 
             if (cooldowns.has(userId)) {
                 const expirationTime = cooldowns.get(userId) + cooldownAmount;
-                
                 if (now < expirationTime) {
                     const timeLeft = (expirationTime - now) / 1000;
-                    return await interaction.reply({
-                        embeds: [{
-                            color: 0xFF6B6B,
-                            title: '⏰ Patience, dear explorer.',
-                            description: `You must wait **${timeLeft.toFixed(1)}s** before venturing down this path again.`,
-                            footer: { text: 'Good things come to those who wait.' }
-                        }],
-                        ephemeral: true
-                    });
+                    return interaction.reply(createCooldownPayload(timeLeft));
                 }
             }
-
             cooldowns.set(userId, now);
             setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-            // Handle the reload button click
             try {
-                // Defer the button interaction update.
                 await interaction.deferUpdate();
-
-                // Generate a new payload with a fresh image.
-                const newPayload = await generateAnalPayload();
-
-                // Edit the original message.
+                const newPayload = await generateAnalPayload(interaction);
                 await interaction.editReply(newPayload);
-
             } catch (error) {
                 console.error('Error handling anal reload button:', error);
-                // Inform the user about the error.
                 if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: 'Failed to reload the image!', ephemeral: true });
-                } else {
-                    await interaction.followUp({ content: 'Failed to reload the image!', ephemeral: true });
+                    await interaction.followUp({ components: [new ContainerBuilder().setAccentColor(0xFF0000).addTextDisplayComponents(td => td.setContent('Failed to reload image.'))], flags: MessageFlags.IsComponentsV2, ephemeral: true }).catch(e => console.error("Component error followUp:", e));
                 }
             }
         }
-        // Add more component handling here if needed.
     },
 };

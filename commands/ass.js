@@ -1,9 +1,44 @@
 // commands/ass.js
 
-const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder } = require('discord.js');
-const { NSFW } = require('nsfwhub'); // Import the NSFW library.
+const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { NSFW } = require('nsfwhub'); // Import the NSFW library
 
 const nsfw = new NSFW(); // Create an instance.
+
+// --- Utility Functions for Payloads ---
+const createNsfwOnlyPayload = () => {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFFCC00)
+        .addTextDisplayComponents(
+            textDisplay => textDisplay.setContent('### 🔞 NSFW Channel Required'),
+            textDisplay => textDisplay.setContent('This command can only be used in channels marked as NSFW. Please ensure you are in an appropriate channel.')
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+};
+
+const createCooldownPayload = (timeLeft) => {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFF6B6B)
+        .addTextDisplayComponents(
+            textDisplay => textDisplay.setContent('### ⏰ Patience, Admirer'),
+            textDisplay => textDisplay.setContent(`You must wait **${timeLeft.toFixed(1)}s** before viewing another stunning display. Art requires contemplation.`)
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+};
+
+const createApiErrorPayload = (category) => {
+    const container = new ContainerBuilder()
+        .setAccentColor(0xFF0000)
+        .addTextDisplayComponents(
+            textDisplay => textDisplay.setContent('### 📛 API Error'),
+            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. The API seems camera-shy right now. Please try again later.`)
+        )
+        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+};
+// --- End Utility Functions ---
 
 // Advanced Preloading Cache System
 class ImagePreloader {
@@ -18,14 +53,12 @@ class ImagePreloader {
     async preloadOnInit() {
         if (this.isPreloading) return;
         this.isPreloading = true;
-        
         try {
             const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
             await Promise.all(preloadPromises);
         } catch (error) {
             console.error(`Initial preload failed for ${this.category}:`, error);
         }
-        
         this.isPreloading = false;
     }
 
@@ -33,10 +66,7 @@ class ImagePreloader {
         try {
             const data = await nsfw.fetch(this.category);
             if (data && data.image && data.image.url) {
-                this.cache.push({
-                    url: data.image.url,
-                    timestamp: Date.now()
-                });
+                this.cache.push({ url: data.image.url, timestamp: Date.now() });
             }
         } catch (error) {
             console.error(`Cache fetch failed for ${this.category}:`, error);
@@ -44,247 +74,175 @@ class ImagePreloader {
     }
 
     async getImage() {
-        // If cache is empty, fetch immediately
         if (this.cache.length === 0) {
             try {
                 const data = await nsfw.fetch(this.category);
-                this.triggerBackgroundPreload(); // Start preloading for next time
+                 if (!data || !data.image || !data.image.url) {
+                    console.error(`API returned invalid data for ${this.category}:`, data);
+                    throw new Error('Invalid API response');
+                }
+                this.triggerBackgroundPreload();
                 return data.image.url;
             } catch (error) {
+                console.error(`Direct fetch failed for ${this.category}:`, error);
                 throw error;
             }
         }
-
-        // Get cached image
         const cachedImage = this.cache.shift();
-        
-        // Immediately trigger background preload to maintain cache
         this.triggerBackgroundPreload();
-        
         return cachedImage.url;
     }
 
     triggerBackgroundPreload() {
         if (this.isPreloading) return;
-        
-        // Preload in background without blocking
         setImmediate(async () => {
-            while (this.cache.length < this.targetCacheSize && !this.isPreloading) {
-                this.isPreloading = true;
-                await this.fetchAndCache();
+            this.isPreloading = true;
+            try {
+                while (this.cache.length < this.targetCacheSize) {
+                    await this.fetchAndCache();
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            } catch (error) {
+                console.error(`Background preload error for ${this.category}:`, error);
+            } finally {
                 this.isPreloading = false;
-                
-                // Small delay to prevent API spam
-                await new Promise(resolve => setTimeout(resolve, 100));
             }
         });
     }
 }
 
-// Initialize preloader for this category
 const imagePreloader = new ImagePreloader("ass");
-
-// Cooldown tracking - Even stunning displays need moments of appreciation.
 const cooldowns = new Map();
 
-// Shared function to generate the response payload using Components V2
-const generateAssPayload = async () => {
+// Main function to generate the image payload
+const generateAssPayload = async (interactionOrMessage) => {
     try {
-        const imageUrl = await imagePreloader.getImage(); // Ultra-fast preloaded image
+        const imageUrl = await imagePreloader.getImage();
 
-        // Wrapping it in a Container for that signature formal flair.
         const container = new ContainerBuilder()
-            .setAccentColor(0xFF007F) // Keeping the lovely color.
-            .addTextDisplayComponents( // Add a title
-                textDisplay => textDisplay
-                    .setContent('### Behold! A delightful view.') // Markdown for a nice heading
+            .setAccentColor(0xE6B800) // A golden yellow for ass
+            .addTextDisplayComponents(
+                textDisplay => textDisplay.setContent('### Behold! A Magnificent Ass! 🍑')
             )
-             // Add a separator for spacing
-            .addSeparatorComponents(
-                separator => separator
-                    .setSpacing(2) // Large spacing, as corrected.
-            )
-            .addMediaGalleryComponents( // The main attraction!
-                mediaGallery => mediaGallery
-                    .addItems( // Add the image/media from the fetched URL
-                        mediaGalleryItem => mediaGalleryItem
-                            // Assuming nsfwhub provides a direct link that discord can handle
-                            .setURL(imageUrl)
-                            .setDescription('A stunning display.') // Alt text.
-                    )
+            .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small))
+            .addMediaGalleryComponents(
+                mediaGallery => mediaGallery.addItems(
+                    item => item.setURL(imageUrl).setDescription('A stunning display of gluteal artistry.')
+                )
             );
 
-        // Add the Reload button.
         const reloadButton = new ButtonBuilder()
-            .setCustomId('ass_button_reload') // Unique ID for this command's reload button.
-            .setLabel('🔃 Reload')
-            .setStyle(ButtonStyle.Success);
+            .setCustomId('ass_button_reload')
+            .setLabel('🔃 More Ass!')
+            .setStyle(ButtonStyle.Primary); // Primary for a primary view
 
-        // Put the button in an Action Row.
-        const actionRow = new ActionRowBuilder()
-            .addComponents(reloadButton);
-
-        // Add the action row to the container.
+        const actionRow = new ActionRowBuilder().addComponents(reloadButton);
         container.addActionRowComponents(actionRow);
 
-        // Construct the final message payload with Components V2 flag.
-        const payload = {
-            components: [container], // Send the container.
-            flags: MessageFlags.IsComponentsV2, // MANDATORY for CV2 components
-            // content and embeds are DISABLED here.
-        };
-
-        return payload;
-
+        return { components: [container], flags: MessageFlags.IsComponentsV2 };
     } catch (error) {
         console.error('Error fetching ass image:', error);
-        // Return an error payload using CV2 components.
-        const errorContainer = new ContainerBuilder()
-            .setAccentColor(0xFF0000)
-            .addTextDisplayComponents(
-                textDisplay => textDisplay
-                    .setContent('### Error')
-            )
-             .addSeparatorComponents(
-                separator => separator
-                    .setSpacing(2) // Large spacing
-            )
-            .addTextDisplayComponents(
-                textDisplay => textDisplay
-                    .setContent('Failed to fetch the requested image. The API seems camera-shy right now.')
-            );
-
-         const errorPayload = {
-            components: [errorContainer],
-            flags: MessageFlags.IsComponentsV2,
-         };
-         return errorPayload;
+        const errorPayload = createApiErrorPayload("ass");
+        if (interactionOrMessage && interactionOrMessage.replied !== true && interactionOrMessage.deferred !== true) {
+            await interactionOrMessage.reply(errorPayload).catch(e => console.error("Error sending API error reply:", e));
+        } else if (interactionOrMessage) {
+            await interactionOrMessage.followUp(errorPayload).catch(e => console.error("Error sending API error followUp:", e));
+        }
+        return errorPayload;
     }
 };
 
 module.exports = {
-    // Slash Command Definition
     data: new SlashCommandBuilder()
         .setName('ass')
-        .setDescription('Offers a glimpse of delightful anatomy.'), // Appropriate description.
+        .setDescription('Offers a glimpse of delightful gluteal anatomy. 🍑 (NSFW channels only)'),
 
-    // Slash Command Execution
     async slashExecute(interaction) {
+        if (!interaction.channel || !interaction.channel.nsfw) {
+            return interaction.reply(createNsfwOnlyPayload());
+        }
+
         const userId = interaction.user.id;
         const now = Date.now();
-        const cooldownAmount = 2000; // 2 seconds of appreciative pause.
+        const cooldownAmount = 3000; // 3 seconds
 
         if (cooldowns.has(userId)) {
             const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            
             if (now < expirationTime) {
                 const timeLeft = (expirationTime - now) / 1000;
-                return await interaction.reply({
-                    embeds: [{
-                        color: 0xFF6B6B,
-                        title: '⏰ Patience, admirer.',
-                        description: `You must wait **${timeLeft.toFixed(1)}s** before viewing another stunning display.`,
-                        footer: { text: 'Art requires contemplation.' }
-                    }],
-                    ephemeral: true
-                });
+                return interaction.reply(createCooldownPayload(timeLeft));
             }
         }
-
         cooldowns.set(userId, now);
         setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-        // Defer the reply.
         await interaction.deferReply({ ephemeral: false });
-
-        const payload = await generateAssPayload();
-
-        // Edit the deferred reply.
+        const payload = await generateAssPayload(interaction);
         await interaction.editReply(payload);
     },
 
-    // Prefix Command Execution
     async prefixExecute(message, args) {
+        if (!message.channel || !message.channel.nsfw) {
+            return message.reply(createNsfwOnlyPayload());
+        }
+
         const userId = message.author.id;
         const now = Date.now();
-        const cooldownAmount = 2000; // 2 seconds of refined waiting.
+        const cooldownAmount = 3000; // 3 seconds
 
         if (cooldowns.has(userId)) {
             const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            
             if (now < expirationTime) {
                 const timeLeft = (expirationTime - now) / 1000;
-                return await message.reply({
-                    embeds: [{
-                        color: 0xFF6B6B,
-                        title: '⏰ Patience, admirer.',
-                        description: `You must wait **${timeLeft.toFixed(1)}s** before viewing another stunning display.`,
-                        footer: { text: 'Art requires contemplation.' }
-                    }]
-                });
+                const cooldownPayload = createCooldownPayload(timeLeft);
+                cooldownPayload.ephemeral = false;
+                return message.reply(cooldownPayload);
             }
         }
-
         cooldowns.set(userId, now);
         setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-        // Send the message directly for prefix commands.
-        const payload = await generateAssPayload();
+        const payload = await generateAssPayload(message);
         await message.channel.send(payload);
     },
 
-    // Component Handling (e.g., Button Clicks)
     async handleComponent(interaction, componentArgs) {
-         // componentArgs will contain parts of the customId after the command name, e.g., ['button', 'reload']
+        if (!interaction.channel || !interaction.channel.nsfw) {
+            if (!interaction.replied && !interaction.deferred) {
+                return interaction.reply(createNsfwOnlyPayload());
+            } else {
+                return interaction.followUp(createNsfwOnlyPayload()).catch(e => console.error("Component NSFW check followUp error:", e));
+            }
+        }
+
         const componentType = componentArgs[0];
         const action = componentArgs[1];
 
         if (componentType === 'button' && action === 'reload') {
             const userId = interaction.user.id;
             const now = Date.now();
-            const cooldownAmount = 2000; // 2 seconds of artistic appreciation.
+            const cooldownAmount = 2000;
 
             if (cooldowns.has(userId)) {
                 const expirationTime = cooldowns.get(userId) + cooldownAmount;
-                
                 if (now < expirationTime) {
                     const timeLeft = (expirationTime - now) / 1000;
-                    return await interaction.reply({
-                        embeds: [{
-                            color: 0xFF6B6B,
-                            title: '⏰ Patience, admirer.',
-                            description: `You must wait **${timeLeft.toFixed(1)}s** before viewing another stunning display.`,
-                            footer: { text: 'Art requires contemplation.' }
-                        }],
-                        ephemeral: true
-                    });
+                    return interaction.reply(createCooldownPayload(timeLeft));
                 }
             }
-
             cooldowns.set(userId, now);
             setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-            // Handle the reload button click
             try {
-                // Defer the button interaction update.
                 await interaction.deferUpdate();
-
-                // Generate a new payload with a fresh image.
-                const newPayload = await generateAssPayload();
-
-                // Edit the original message.
+                const newPayload = await generateAssPayload(interaction);
                 await interaction.editReply(newPayload);
-
             } catch (error) {
                 console.error('Error handling ass reload button:', error);
-                // Inform the user about the error.
                 if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: 'Failed to reload the image!', ephemeral: true });
-                } else {
-                    await interaction.followUp({ content: 'Failed to reload the image!', ephemeral: true });
+                    await interaction.followUp({ components: [new ContainerBuilder().setAccentColor(0xFF0000).addTextDisplayComponents(td => td.setContent('Failed to reload image.'))], flags: MessageFlags.IsComponentsV2, ephemeral: true }).catch(e => console.error("Component error followUp:", e));
                 }
             }
         }
-        // Add more component handling here if needed.
     },
 };
