@@ -37,7 +37,7 @@ const createApiErrorPayload = (category) => {
         .setAccentColor(0xFF0000) // Error red
         .addTextDisplayComponents(
             textDisplay => textDisplay.setContent('### 📛 API Error'),
-            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. The API might be temporarily unavailable or shy. Please try again later.`)
+            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. The API might be temporarily unavailable or shy. Please try again later. The NSFWHub API we use to fetch images is very strictly rate-limited, so the most likely reason for the error is due to this limitation.`)
         )
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
     return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true }; // Ephemeral for general errors
@@ -161,7 +161,7 @@ const generatePussyPayload = async (interactionOrMessage) => {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('pussy')
-        .setDescription('Delivers a delightful pussy image. 😽 (NSFW channels only)'),
+        .setDescription('Delivers a delightful pussy image. 😽'),
 
     async slashExecute(interaction) {
         if (!interaction.channel || !interaction.channel.nsfw) {
@@ -249,17 +249,22 @@ module.exports = {
             cooldowns.set(userId, now);
             setTimeout(() => cooldowns.delete(userId), cooldownAmount);
 
-            try {
-                await interaction.deferUpdate(); // Acknowledge the button click
-                const newPayload = await generatePussyPayload(interaction); // Pass interaction
-                await interaction.editReply(newPayload);
-            } catch (error) {
-                console.error('Error handling pussy reload button:', error);
-                // The generatePussyPayload function now handles sending an API error message if interaction is passed
-                // So, we might not need to do much more here unless deferUpdate failed.
-                if (!interaction.replied && !interaction.deferred) {
-                     // This case should be rare if deferUpdate succeeded.
-                    await interaction.followUp({ components: [new ContainerBuilder().setAccentColor(0xFF0000).addTextDisplayComponents(td => td.setContent('Failed to reload image.'))], flags: MessageFlags.IsComponentsV2, ephemeral: true }).catch(e => console.error("Component error followUp:", e));
+            try {await interaction.deferUpdate();
+                const newPayload = await generatePussyPayload(interaction);
+                // Check if generatePussyPayload returned an error payload
+                if (newPayload.components && newPayload.components[0] && newPayload.components[0].data && newPayload.components[0].data.content_blocks && newPayload.components[0].data.content_blocks.some(cb => cb.content === '### 📛 API Error')) {
+                    // If it's an API error, send it as a followUp, don't edit the original message
+                    await interaction.followUp(newPayload).catch(e => console.error("Error sending API error followUp after button:", e));
+                } else {
+                    // Otherwise, edit the reply with the new content
+                    await interaction.editReply(newPayload);
+                }catch (error) {console.error('Error handling pussy reload button:', error);
+                // General error handling for other issues, send ephemeral error
+                const errorPayload = createApiErrorPayload("pussy"); // Use the updated error payload function
+                 if (interaction.replied || interaction.deferred) {
+                    await interaction.followUp(errorPayload).catch(e => console.error("Component error followUp:", e));
+                } else {
+                    await interaction.reply(errorPayload).catch(e => console.error("Component error reply:", e));
                 }
             }
         }
