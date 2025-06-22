@@ -246,7 +246,9 @@ module.exports = {
                 } else {
                     // Otherwise, edit the reply with the new content
                     await interaction.editReply(newPayload);
-                }catch (error) {console.error('Error handling toys reload button:', error);
+
+            }
+            }  catch (error) {console.error('Error handling toys reload button:', error);
                 // General error handling for other issues, send ephemeral error
                 const errorPayload = createApiErrorPayload("toys"); // Use the updated error payload function
                  if (interaction.replied || interaction.deferred) {
