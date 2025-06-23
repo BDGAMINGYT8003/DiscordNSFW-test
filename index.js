@@ -1,119 +1,143 @@
 // index.js
 
-const { Client, GatewayIntentBits, Collection, REST, Routes, MessageFlags, TextDisplayBuilder, MediaGalleryBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ContainerBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, MessageFlags, EmbedBuilder } = require('discord.js'); // Updated EmbedBuilder
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config(); // Ensure environment variables are loaded
 
 // Bot Configuration from Environment Variables
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '988530196552511528';
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET; // Optional for bot runtime
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '988530196552511528'; // Default CLIENT_ID if not set
 
-// Bot Prefix - Because sometimes, you just want a quick command, right?
+// Bot Prefix
 const PREFIX = '!';
 
-// Client Initialization - Ready to connect.
+// Client Initialization
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent, // Needed for prefix commands
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.DirectMessageTyping,
+        GatewayIntentBits.DirectMessages, // Not strictly necessary for current features but good for future expansion
     ],
 });
 
-// Collections to hold our dynamic commands and components.
+// Collections to hold commands.
 client.commands = new Collection();
-// We don't need a separate collection for components per se, as components
-// are linked to commands via customIds and handled by the command's own logic.
 
-// Command Loading - Let's find all the goodies in the commands folder.
+// --- Utility Function for Error Replies ---
+const sendErrorReply = async (interaction, customMessage = 'An unexpected error occurred.') => {
+    const errorMessage = `${customMessage}\nThe NSFWHub API we use to fetch images is very strictly rate-limited, so this is the most likely reason for the error. Please try again later.`;
+    const errorEmbed = new EmbedBuilder()
+        .setColor(0xFF0000) // Red for errors
+        .setTitle('📛 Error')
+        .setDescription(errorMessage)
+        .setTimestamp();
+
+    try {
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
+        } else {
+            await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        }
+    } catch (e) {
+        console.error('Failed to send error reply:', e);
+    }
+};
+
+
+// Command Loading
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-
 const slashCommands = [];
 
+console.log('Attempting to load commands...');
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
-    const command = require(filePath);
-
-    // Ensure the command file has the necessary structure
-    if ('data' in command && 'slashExecute' in command && 'prefixExecute' in command && 'handleComponent' in command) {
-        client.commands.set(command.data.name, command);
-        slashCommands.push(command.data.toJSON());
-        console.log(`Successfully loaded command: ${command.data.name}`); // A little log never hurt anyone.
-    } else {
-        console.warn(`[WARNING] The command file at ${filePath} is missing a required "data", "slashExecute", "prefixExecute", or "handleComponent" property.`);
+    try {
+        const command = require(filePath);
+        if (command.data && typeof command.slashExecute === 'function' && typeof command.prefixExecute === 'function') {
+            client.commands.set(command.data.name, command);
+            slashCommands.push(command.data.toJSON());
+            console.log(`Successfully loaded command: ${command.data.name}`);
+        } else {
+            console.warn(`[WARNING] The command file at ${filePath} is missing a required "data", "slashExecute", or "prefixExecute" property.`);
+        }
+    } catch (error) {
+        console.error(`Error loading command file ${filePath}:`, error);
     }
 }
+console.log(`Loaded ${client.commands.size} commands.`);
 
-// Slash Command Registration - Making them visible to Discord.
+// Slash Command Registration
 (async () => {
+    if (!TOKEN) {
+        console.error('DISCORD_BOT_TOKEN is not set. Skipping slash command registration.');
+        return;
+    }
+    if (slashCommands.length === 0) {
+        console.log('No slash commands found to register.');
+        return;
+    }
     try {
         console.log(`Started refreshing ${slashCommands.length} application (/) commands.`);
-
-        // The put method is used to fully refresh all commands in the guild with the current set
-        // For global commands, you use Routes.applicationCommands(CLIENT_ID)
         const rest = new REST({ version: '10' }).setToken(TOKEN);
 
+        // For global commands, use Routes.applicationCommands(CLIENT_ID)
         const data = await rest.put(
-            Routes.applicationCommands(CLIENT_ID), // Use applicationCommands for global registration
+            Routes.applicationCommands(CLIENT_ID),
             { body: slashCommands },
         );
-
-        console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+        console.log(`Successfully reloaded ${data.length} application (/) commands globally.`);
     } catch (error) {
-        // And of course, catching any slips.
         console.error('Error registering slash commands:', error);
     }
 })();
-
 
 // Event Handler for Interactions (Slash Commands & Components)
 client.on('interactionCreate', async interaction => {
     if (interaction.isChatInputCommand()) {
         const command = client.commands.get(interaction.commandName);
-
         if (!command) {
             console.error(`No command matching ${interaction.commandName} was found.`);
+            await sendErrorReply(interaction, `The command "${interaction.commandName}" was not found.`);
             return;
         }
 
         try {
-            // Execute the slash command logic
             await command.slashExecute(interaction);
         } catch (error) {
             console.error(`Error executing slash command ${interaction.commandName}:`, error);
-            const errorMessage = 'There was an error while executing this command!';
-            if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content: errorMessage, ephemeral: true });
-            } else {
-                await interaction.reply({ content: errorMessage, ephemeral: true });
-            }
+            await sendErrorReply(interaction, `There was an error while executing the command "${interaction.commandName}".`);
         }
+
     } else if (interaction.isButton()) {
-        // Handle button interactions
-        const [commandName, ...componentArgs] = interaction.customId.split('_'); // Assuming customId format: commandName_...
+        // Button custom IDs are expected to be in the format: commandName_action_...args
+        // e.g., "anal_button_reload" or "pussy_button_nextPage_2"
+        const parts = interaction.customId.split('_');
+        const commandName = parts[0];
+        // The rest of the parts are arguments for the component handler
+        const componentArgs = parts.slice(1);
+
 
         const command = client.commands.get(commandName);
-
-        if (!command) {
-            console.error(`No command found for button custom ID: ${interaction.customId}`);
+        if (!command || typeof command.handleComponent !== 'function') {
+            console.error(`No command or component handler found for button custom ID: ${interaction.customId}`);
+            // For button errors, we only send an ephemeral message and do not touch the original message.
+            await sendErrorReply(interaction, 'This button seems to be malfunctioning or outdated.');
             return;
         }
 
         try {
-            // Execute the component handling logic for the specific command
+            // The handleComponent function is now responsible for deferring/replying appropriately.
+            // It should only send ephemeral messages on error, leaving the original message intact.
             await command.handleComponent(interaction, componentArgs);
         } catch (error) {
             console.error(`Error handling component interaction ${interaction.customId}:`, error);
-            // Decide how to respond to component errors, maybe just log or ephemeral follow-up
-            if (!interaction.replied && !interaction.deferred) {
-                 await interaction.reply({ content: 'There was an error processing this button!', ephemeral: true });
-            } else {
-                 await interaction.followUp({ content: 'There was an error processing this button!', ephemeral: true });
-            }
+            // Ensure error reply is ephemeral and doesn't affect the original message.
+            // The command's handleComponent should ideally handle its own errors,
+            // but this is a fallback.
+            await sendErrorReply(interaction, 'There was an error processing this button action.');
         }
     }
     // Add handlers for other interaction types (select menus, modals, etc.) if needed later.
@@ -121,7 +145,6 @@ client.on('interactionCreate', async interaction => {
 
 // Event Handler for Messages (Prefix Commands)
 client.on('messageCreate', async message => {
-    // Ignore bot messages and messages that don't start with the prefix
     if (message.author.bot || !message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
@@ -130,33 +153,48 @@ client.on('messageCreate', async message => {
     const command = client.commands.get(commandName);
 
     if (!command) {
-        // If the command doesn't exist, just ignore it silently, or send a small error?
-        // Let's keep it silent for now.
+        // Silently ignore if command not found for prefix commands
         return;
     }
 
     try {
-        // Execute the prefix command logic
         await command.prefixExecute(message, args);
     } catch (error) {
         console.error(`Error executing prefix command ${commandName}:`, error);
-        // Reply to the user about the error
-        await message.reply('There was an error trying to execute that command!');
+        // For prefix commands, a direct reply is conventional.
+        // We will use the new error embed style for consistency, but not ephemeral.
+        const errorMessage = `There was an error trying to execute the \`${commandName}\` command.\nThe NSFWHub API we use is very strictly rate-limited, so this is the most likely reason for the error. Please try again later.`;
+        const errorEmbed = new EmbedBuilder()
+            .setColor(0xFF0000)
+            .setTitle('📛 Command Error')
+            .setDescription(errorMessage)
+            .setTimestamp();
+        try {
+            await message.reply({ embeds: [errorEmbed] });
+        } catch (e) {
+            console.error('Failed to send prefix command error reply:', e);
+        }
     }
 });
 
-
-// Client Ready Event - When the bot comes to life.
+// Client Ready Event
 client.once('ready', () => {
+    if (!client.user) {
+        console.error('Client user is not available on ready event.');
+        return;
+    }
     console.log(`Ready to serve! Logged in as ${client.user.tag}`);
-    client.user.setActivity('with your desires...'); // A little flair.
+    client.user.setActivity('with NSFWHub API'); // Updated activity
 });
 
-// Validate token exists
+// Validate token exists before login attempt
 if (!TOKEN) {
-    console.error('DISCORD_BOT_TOKEN is not set in environment variables!');
-    process.exit(1);
+    console.error('DISCORD_BOT_TOKEN is not set in environment variables! The bot cannot start.');
+    process.exit(1); // Exit if token is missing
 }
 
-// Log in to Discord - Let's do this.
-client.login(TOKEN);
+// Log in to Discord
+client.login(TOKEN).catch(error => {
+    console.error('Failed to log in:', error);
+    process.exit(1);
+});

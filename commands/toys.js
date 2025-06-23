@@ -1,46 +1,38 @@
 // commands/toys.js
 
-const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
+const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const { NSFW } = require('nsfwhub'); // Import the NSFW library
 
 const nsfw = new NSFW(); // Create an instance.
+const CATEGORY = "toys"; // Define category for easy reuse
 
-// --- Utility Functions for Payloads ---
+// --- Utility Functions for Payloads (Using EmbedBuilder) ---
 
 // Payload for NSFW channel restriction
-const createNsfwOnlyPayload = () => {
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFFCC00) // Warning yellow
-        .addTextDisplayComponents(
-            textDisplay => textDisplay.setContent('### 🔞 NSFW Channel Required'),
-            textDisplay => textDisplay.setContent('This command can only be used in channels marked as NSFW. Please ensure you are in an appropriate channel.')
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+const createNsfwOnlyEmbed = () => { // Renamed and uses EmbedBuilder
+    return new EmbedBuilder()
+        .setColor(0xFFCC00) // Warning yellow
+        .setTitle('🔞 NSFW Channel Required')
+        .setDescription('This command can only be used in channels marked as NSFW. Please ensure you are in an appropriate channel.')
+        .setTimestamp();
 };
 
 // Payload for cooldown message
-const createCooldownPayload = (timeLeft) => {
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFF6B6B) // Soft red
-        .addTextDisplayComponents(
-            textDisplay => textDisplay.setContent('### ⏰ Patience, Lovely Viewer'),
-            textDisplay => textDisplay.setContent(`You must wait **${timeLeft.toFixed(1)}s** before requesting another delightful view. Beauty is worth the wait.`)
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
+const createCooldownEmbed = (timeLeft) => { // Renamed and uses EmbedBuilder
+    return new EmbedBuilder()
+        .setColor(0xFF6B6B) // Soft red
+        .setTitle('⏰ Playtime Paused!')
+        .setDescription(`You must wait **${timeLeft.toFixed(1)}s** before grabbing another toy. Even playtime has its limits!`)
+        .setTimestamp();
 };
 
 // Payload for API error
-const createApiErrorPayload = (category) => {
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFF0000) // Error red
-        .addTextDisplayComponents(
-            textDisplay => textDisplay.setContent('### 📛 API Error'),
-            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. The API might be temporarily unavailable or shy. Please try again later.`)
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true }; // Ephemeral for general errors
+const createApiErrorEmbed = (category) => { // Renamed and uses EmbedBuilder
+    return new EmbedBuilder()
+        .setColor(0xFF0000) // Error red
+        .setTitle('📛 API Error')
+        .setDescription(`Failed to fetch an image for the **${category}** category. The NSFWHub API we use is very strictly rate-limited, so this is the most likely reason for the error. Please try again later.`)
+        .setTimestamp();
 };
 
 
@@ -159,7 +151,7 @@ const generateToysPayload = async (interactionOrMessage) => {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('toys')
-        .setDescription('Delivers images of fun with toys. 🧸🍆 (NSFW channels only)'),
+        .setDescription('Delivers images of fun with toys. 🧸🍆'),
 
     async slashExecute(interaction) {
         if (!interaction.channel || !interaction.channel.nsfw) {
