@@ -1,247 +1,85 @@
 // commands/bdsm.js
 
-const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MediaGalleryBuilder, TextDisplayBuilder, MessageFlags, ContainerBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
-const { NSFW } = require('nsfwhub'); // Import the NSFW library
+const { SlashCommandBuilder } = require('discord.js');
+const { createNsfwOnlyPayload, createCooldownPayload, createApiErrorPayload, createContentPayload } = require('../utils/message-components');
+const imagePreloader = require('../utils/image-preloader');
 
-const nsfw = new NSFW(); // Create an instance.
+const CATEGORY = 'bdsm';
+const COMMAND_TITLE = 'BDSM';
+const COOLDOWN = 3000; // 3 seconds in milliseconds
+const cooldowns = new Map();
 
-// --- Utility Functions for Payloads ---
-const createNsfwOnlyPayload = () => {
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFFCC00)
-        .addTextDisplayComponents(
-            textDisplay => textDisplay.setContent('### 🔞 NSFW Channel Required'),
-            textDisplay => textDisplay.setContent('This command can only be used in channels marked as NSFW. Please ensure you are in an appropriate channel.')
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
-};
-
-const createCooldownPayload = (timeLeft) => {
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFF6B6B)
-        .addTextDisplayComponents(
-            textDisplay => textDisplay.setContent('### ⏰ Patience, Seeker of Control'),
-            textDisplay => textDisplay.setContent(`You must wait **${timeLeft.toFixed(1)}s** before exploring another scene of power. Control requires patience.`)
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
-};
-
-const createApiErrorPayload = (category) => {
-    const container = new ContainerBuilder()
-        .setAccentColor(0xFF0000)
-        .addTextDisplayComponents(
-            textDisplay => textDisplay.setContent('### 📛 API Error'),
-            textDisplay => textDisplay.setContent(`Failed to fetch an image for the **${category}** category. The scene might be too intense for the API right now. Please try again later.`)
-        )
-        .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-    return { components: [container], flags: MessageFlags.IsComponentsV2, ephemeral: true };
-};
-// --- End Utility Functions ---
-
-// Advanced Preloading Cache System
-class ImagePreloader {
-    constructor(category) {
-        this.category = category;
-        this.cache = [];
-        this.isPreloading = false;
-        this.targetCacheSize = 2;
-        this.preloadOnInit();
+/**
+ * A unified handler for both slash and prefix commands.
+ * @param {import('discord.js').Interaction | import('discord.js').Message} context - The interaction or message object.
+ * @param {boolean} isInteraction - Whether the context is an interaction.
+ */
+async function handleCommand(context, isInteraction) {
+    // 1. Check for NSFW channel
+    if (!context.channel || !context.channel.nsfw) {
+        return context.reply(createNsfwOnlyPayload());
     }
 
-    async preloadOnInit() {
-        if (this.isPreloading) return;
-        this.isPreloading = true;
-        try {
-            const preloadPromises = Array(this.targetCacheSize).fill().map(() => this.fetchAndCache());
-            await Promise.all(preloadPromises);
-        } catch (error) {
-            console.error(`Initial preload failed for ${this.category}:`, error);
-        }
-        this.isPreloading = false;
-    }
-
-    async fetchAndCache() {
-        try {
-            const data = await nsfw.fetch(this.category);
-            if (data && data.image && data.image.url) {
-                this.cache.push({ url: data.image.url, timestamp: Date.now() });
-            }
-        } catch (error) {
-            console.error(`Cache fetch failed for ${this.category}:`, error);
+    // 2. Handle Cooldown
+    const userId = isInteraction ? context.user.id : context.author.id;
+    const now = Date.now();
+    if (cooldowns.has(userId)) {
+        const expirationTime = cooldowns.get(userId) + COOLDOWN;
+        if (now < expirationTime) {
+            const timeLeft = (expirationTime - now) / 1000;
+            return context.reply(createCooldownPayload(timeLeft));
         }
     }
 
-    async getImage() {
-        if (this.cache.length === 0) {
-            try {
-                const data = await nsfw.fetch(this.category);
-                 if (!data || !data.image || !data.image.url) {
-                    console.error(`API returned invalid data for ${this.category}:`, data);
-                    throw new Error('Invalid API response');
-                }
-                this.triggerBackgroundPreload();
-                return data.image.url;
-            } catch (error) {
-                console.error(`Direct fetch failed for ${this.category}:`, error);
-                throw error;
-            }
-        }
-        const cachedImage = this.cache.shift();
-        this.triggerBackgroundPreload();
-        return cachedImage.url;
+    // 3. Defer reply for interactions to give us time
+    if (isInteraction) {
+        await context.deferReply({ ephemeral: false });
     }
 
-    triggerBackgroundPreload() {
-        if (this.isPreloading) return;
-        setImmediate(async () => {
-            this.isPreloading = true;
-            try {
-                while (this.cache.length < this.targetCacheSize) {
-                    await this.fetchAndCache();
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                }
-            } catch (error) {
-                console.error(`Background preload error for ${this.category}:`, error);
-            } finally {
-                this.isPreloading = false;
-            }
-        });
+    // 4. Fetch image and build payload
+    try {
+        const imageUrl = await imagePreloader.getImage(CATEGORY);
+        const payload = createContentPayload(CATEGORY, imageUrl, COMMAND_TITLE);
+
+        const replyMethod = isInteraction ? 'editReply' : 'channel.send';
+        await context[replyMethod](payload);
+
+        // 5. Set cooldown after a successful command
+        cooldowns.set(userId, now);
+        setTimeout(() => cooldowns.delete(userId), COOLDOWN);
+    } catch (error) {
+        console.error(`[Command: ${CATEGORY}] Error fetching image:`, error);
+        const errorPayload = createApiErrorPayload(CATEGORY);
+        const errorMethod = isInteraction ? 'editReply' : 'reply';
+        await context[errorMethod](errorPayload);
     }
 }
 
-const imagePreloader = new ImagePreloader("bdsm");
-const cooldowns = new Map();
-
-// Main function to generate the image payload
-const generateBdsmPayload = async (interactionOrMessage) => {
-    try {
-        const imageUrl = await imagePreloader.getImage();
-
-        const container = new ContainerBuilder()
-            .setAccentColor(0x8B0000) // Dark red for BDSM
-            .addTextDisplayComponents(
-                textDisplay => textDisplay.setContent('### An Exploration of Control & Desire... ⛓️')
-            )
-            .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small))
-            .addMediaGalleryComponents(
-                mediaGallery => mediaGallery.addItems(
-                    item => item.setURL(imageUrl).setDescription('Ties that bind, pleasures defined.')
-                )
-            );
-
-        const reloadButton = new ButtonBuilder()
-            .setCustomId('bdsm_button_reload')
-            .setLabel('⛓️ More Discipline!')
-            .setStyle(ButtonStyle.Secondary); // Secondary, perhaps for a more "subtle" control
-
-        const actionRow = new ActionRowBuilder().addComponents(reloadButton);
-        container.addActionRowComponents(actionRow);
-
-        return { components: [container], flags: MessageFlags.IsComponentsV2 };
-    } catch (error) {
-        console.error('Error fetching bdsm image:', error);
-        const errorPayload = createApiErrorPayload("bdsm");
-        if (interactionOrMessage && interactionOrMessage.replied !== true && interactionOrMessage.deferred !== true) {
-            await interactionOrMessage.reply(errorPayload).catch(e => console.error("Error sending API error reply:", e));
-        } else if (interactionOrMessage) {
-            await interactionOrMessage.followUp(errorPayload).catch(e => console.error("Error sending API error followUp:", e));
-        }
-        return errorPayload;
-    }
-};
-
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('bdsm')
-        .setDescription('Explores themes of power, pleasure, and discipline. ⛓️ (NSFW channels only)'),
+        .setName(CATEGORY)
+        .setDescription(`Delivers ${COMMAND_TITLE}. (NSFW channels only)`),
 
-    async slashExecute(interaction) {
-        if (!interaction.channel || !interaction.channel.nsfw) {
-            return interaction.reply(createNsfwOnlyPayload());
-        }
-
-        const userId = interaction.user.id;
-        const now = Date.now();
-        const cooldownAmount = 3000; // 3 seconds
-
-        if (cooldowns.has(userId)) {
-            const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            if (now < expirationTime) {
-                const timeLeft = (expirationTime - now) / 1000;
-                return interaction.reply(createCooldownPayload(timeLeft));
-            }
-        }
-        cooldowns.set(userId, now);
-        setTimeout(() => cooldowns.delete(userId), cooldownAmount);
-
-        await interaction.deferReply({ ephemeral: false });
-        const payload = await generateBdsmPayload(interaction);
-        await interaction.editReply(payload);
+    async execute(interactionOrMessage) {
+        // Determine if it's an interaction or a message and call the handler
+        const isInteraction = interactionOrMessage.isChatInputCommand?.() || false;
+        await handleCommand(interactionOrMessage, isInteraction);
     },
 
-    async prefixExecute(message, args) {
-        if (!message.channel || !message.channel.nsfw) {
-            return message.reply(createNsfwOnlyPayload());
-        }
+    async handleComponent(interaction, action) {
+        if (action === 'reload') {
+            // Acknowledge the button press immediately
+            await interaction.deferUpdate();
 
-        const userId = message.author.id;
-        const now = Date.now();
-        const cooldownAmount = 3000; // 3 seconds
-
-        if (cooldowns.has(userId)) {
-            const expirationTime = cooldowns.get(userId) + cooldownAmount;
-            if (now < expirationTime) {
-                const timeLeft = (expirationTime - now) / 1000;
-                const cooldownPayload = createCooldownPayload(timeLeft);
-                cooldownPayload.ephemeral = false;
-                return message.reply(cooldownPayload);
-            }
-        }
-        cooldowns.set(userId, now);
-        setTimeout(() => cooldowns.delete(userId), cooldownAmount);
-
-        const payload = await generateBdsmPayload(message);
-        await message.channel.send(payload);
-    },
-
-    async handleComponent(interaction, componentArgs) {
-        if (!interaction.channel || !interaction.channel.nsfw) {
-            if (!interaction.replied && !interaction.deferred) {
-                return interaction.reply(createNsfwOnlyPayload());
-            } else {
-                return interaction.followUp(createNsfwOnlyPayload()).catch(e => console.error("Component NSFW check followUp error:", e));
-            }
-        }
-
-        const componentType = componentArgs[0];
-        const action = componentArgs[1];
-
-        if (componentType === 'button' && action === 'reload') {
-            const userId = interaction.user.id;
-            const now = Date.now();
-            const cooldownAmount = 2000;
-
-            if (cooldowns.has(userId)) {
-                const expirationTime = cooldowns.get(userId) + cooldownAmount;
-                if (now < expirationTime) {
-                    const timeLeft = (expirationTime - now) / 1000;
-                    return interaction.reply(createCooldownPayload(timeLeft));
-                }
-            }
-            cooldowns.set(userId, now);
-            setTimeout(() => cooldowns.delete(userId), cooldownAmount);
-
+            // Re-fetch and edit the original message
             try {
-                await interaction.deferUpdate();
-                const newPayload = await generateBdsmPayload(interaction);
-                await interaction.editReply(newPayload);
+                const imageUrl = await imagePreloader.getImage(CATEGORY);
+                const payload = createContentPayload(CATEGORY, imageUrl, COMMAND_TITLE);
+                await interaction.editReply(payload);
             } catch (error) {
-                console.error('Error handling bdsm reload button:', error);
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.followUp({ components: [new ContainerBuilder().setAccentColor(0xFF0000).addTextDisplayComponents(td => td.setContent('Failed to reload image.'))], flags: MessageFlags.IsComponentsV2, ephemeral: true }).catch(e => console.error("Component error followUp:", e));
-                }
+                 console.error(`[Component: ${CATEGORY}] Error reloading image:`, error);
+                 // We can't send a full error payload here, so we follow up
+                 await interaction.followUp(createApiErrorPayload(CATEGORY));
             }
         }
     },

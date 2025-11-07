@@ -1,162 +1,128 @@
 // index.js
 
-const { Client, GatewayIntentBits, Collection, REST, Routes, MessageFlags, TextDisplayBuilder, MediaGalleryBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, ContainerBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const imagePreloader = require('./utils/image-preloader'); // Import the shared preloader
 
 // Bot Configuration from Environment Variables
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '988530196552511528';
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET; // Optional for bot runtime
 
-// Bot Prefix - Because sometimes, you just want a quick command, right?
+// Bot Prefix
 const PREFIX = '!';
 
-// Client Initialization - Ready to connect.
+// Client Initialization
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent, // Needed for prefix commands
+        GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.DirectMessageTyping,
     ],
 });
 
-// Collections to hold our dynamic commands and components.
+// Collections for commands
 client.commands = new Collection();
-// We don't need a separate collection for components per se, as components
-// are linked to commands via customIds and handled by the command's own logic.
+const slashCommands = [];
+const commandCategories = []; // To store categories for preloading
 
-// Command Loading - Let's find all the goodies in the commands folder.
+// --- Command Loading ---
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-
-const slashCommands = [];
 
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
 
-    // Ensure the command file has the necessary structure
-    if ('data' in command && 'slashExecute' in command && 'prefixExecute' in command && 'handleComponent' in command) {
+    if ('data' in command && 'execute' in command && 'handleComponent' in command) {
         client.commands.set(command.data.name, command);
         slashCommands.push(command.data.toJSON());
-        console.log(`Successfully loaded command: ${command.data.name}`); // A little log never hurt anyone.
+        commandCategories.push(command.data.name); // Assume command name is the category
+        console.log(`[Loader] Loaded command: ${command.data.name}`);
     } else {
-        console.warn(`[WARNING] The command file at ${filePath} is missing a required "data", "slashExecute", "prefixExecute", or "handleComponent" property.`);
+        console.warn(`[WARNING] The command at ${filePath} is missing required properties.`);
     }
 }
 
-// Slash Command Registration - Making them visible to Discord.
+// --- Slash Command Registration ---
 (async () => {
     try {
-        console.log(`Started refreshing ${slashCommands.length} application (/) commands.`);
-
-        // The put method is used to fully refresh all commands in the guild with the current set
-        // For global commands, you use Routes.applicationCommands(CLIENT_ID)
+        console.log(`[REST] Started refreshing ${slashCommands.length} application (/) commands.`);
         const rest = new REST({ version: '10' }).setToken(TOKEN);
-
         const data = await rest.put(
-            Routes.applicationCommands(CLIENT_ID), // Use applicationCommands for global registration
+            Routes.applicationCommands(CLIENT_ID),
             { body: slashCommands },
         );
-
-        console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+        console.log(`[REST] Successfully reloaded ${data.length} application (/) commands.`);
     } catch (error) {
-        // And of course, catching any slips.
-        console.error('Error registering slash commands:', error);
+        console.error('[REST] Error registering slash commands:', error);
     }
 })();
 
-
-// Event Handler for Interactions (Slash Commands & Components)
+// --- Event Handler for Interactions (Slash Commands & Components) ---
 client.on('interactionCreate', async interaction => {
-    if (interaction.isChatInputCommand()) {
-        const command = client.commands.get(interaction.commandName);
-
-        if (!command) {
-            console.error(`No command matching ${interaction.commandName} was found.`);
-            return;
-        }
-
-        try {
-            // Execute the slash command logic
-            await command.slashExecute(interaction);
-        } catch (error) {
-            console.error(`Error executing slash command ${interaction.commandName}:`, error);
-            const errorMessage = 'There was an error while executing this command!';
-            if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content: errorMessage, ephemeral: true });
-            } else {
-                await interaction.reply({ content: errorMessage, ephemeral: true });
-            }
-        }
-    } else if (interaction.isButton()) {
-        // Handle button interactions
-        const [commandName, ...componentArgs] = interaction.customId.split('_'); // Assuming customId format: commandName_...
-
-        const command = client.commands.get(commandName);
-
-        if (!command) {
-            console.error(`No command found for button custom ID: ${interaction.customId}`);
-            return;
-        }
-
-        try {
-            // Execute the component handling logic for the specific command
-            await command.handleComponent(interaction, componentArgs);
-        } catch (error) {
-            console.error(`Error handling component interaction ${interaction.customId}:`, error);
-            // Decide how to respond to component errors, maybe just log or ephemeral follow-up
-            if (!interaction.replied && !interaction.deferred) {
-                 await interaction.reply({ content: 'There was an error processing this button!', ephemeral: true });
-            } else {
-                 await interaction.followUp({ content: 'There was an error processing this button!', ephemeral: true });
-            }
-        }
-    }
-    // Add handlers for other interaction types (select menus, modals, etc.) if needed later.
-});
-
-// Event Handler for Messages (Prefix Commands)
-client.on('messageCreate', async message => {
-    // Ignore bot messages and messages that don't start with the prefix
-    if (message.author.bot || !message.content.startsWith(PREFIX)) return;
-
-    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-    const commandName = args.shift().toLowerCase();
-
+    const commandName = interaction.isChatInputCommand() ? interaction.commandName : interaction.customId.split(':')[0];
     const command = client.commands.get(commandName);
 
     if (!command) {
-        // If the command doesn't exist, just ignore it silently, or send a small error?
-        // Let's keep it silent for now.
+        console.error(`No command matching '${commandName}' was found.`);
         return;
     }
 
     try {
-        // Execute the prefix command logic
-        await command.prefixExecute(message, args);
+        if (interaction.isChatInputCommand()) {
+            await command.execute(interaction);
+        } else if (interaction.isButton()) {
+            const action = interaction.customId.split(':')[1];
+            await command.handleComponent(interaction, action);
+        }
+        // Add other interaction types (selects, modals) here if needed
+    } catch (error) {
+        console.error(`Error handling interaction for ${commandName}:`, error);
+        const errorMessage = { content: 'An error occurred while processing your request.', ephemeral: true };
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp(errorMessage);
+        } else {
+            await interaction.reply(errorMessage);
+        }
+    }
+});
+
+// --- Event Handler for Messages (Prefix Commands) ---
+client.on('messageCreate', async message => {
+    if (message.author.bot || !message.content.startsWith(PREFIX)) return;
+
+    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+    const commandName = args.shift().toLowerCase();
+    const command = client.commands.get(commandName);
+
+    if (!command) return; // Silently ignore unknown commands
+
+    try {
+        // We can reuse the `execute` function for prefix commands by passing the message
+        await command.execute(message, args);
     } catch (error) {
         console.error(`Error executing prefix command ${commandName}:`, error);
-        // Reply to the user about the error
         await message.reply('There was an error trying to execute that command!');
     }
 });
 
+// --- Client Ready Event ---
+client.once('ready', async () => {
+    console.log(`[Client] Ready! Logged in as ${client.user.tag}`);
+    client.user.setActivity('with V2 Components');
 
-// Client Ready Event - When the bot comes to life.
-client.once('ready', () => {
-    console.log(`Ready to serve! Logged in as ${client.user.tag}`);
-    client.user.setActivity('with your desires...'); // A little flair.
+    // Start preloading images for all loaded command categories
+    if (commandCategories.length > 0) {
+        await imagePreloader.initialPreload(commandCategories);
+    }
 });
 
-// Validate token exists
+// --- Startup Validation & Login ---
 if (!TOKEN) {
-    console.error('DISCORD_BOT_TOKEN is not set in environment variables!');
+    console.error('DISCORD_BOT_TOKEN is not set in environment variables! Please set it in your .env file or system variables.');
     process.exit(1);
 }
 
-// Log in to Discord - Let's do this.
 client.login(TOKEN);
