@@ -7,7 +7,7 @@ const imagePreloader = require('./utils/image-preloader'); // Import the shared 
 
 // Bot Configuration from Environment Variables
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID || '988530196552511528';
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 
 // Bot Prefix
 const PREFIX = '!';
@@ -122,6 +122,10 @@ client.once('ready', async () => {
 // --- Startup Validation & Login ---
 if (!TOKEN) {
     console.error('DISCORD_BOT_TOKEN is not set in environment variables! Please set it in your .env file or system variables.');
+    process.exit(1);
+}
+if (!CLIENT_ID) {
+    console.error('DISCORD_CLIENT_ID is not set in environment variables! Please set it in your .env file or system variables.');
     process.exit(1);
 }
 

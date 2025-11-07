@@ -6,6 +6,7 @@ class ImagePreloader {
     constructor() {
         this.nsfw = new NSFW();
         this.caches = new Map(); // category -> { cache: [], isPreloading: false }
+        this.failedCategories = new Set(); // Tracks categories that fail to fetch
         this.targetCacheSize = 3; // Keep a buffer of 3 images per category
         this.preloadDelay = 250; // ms between fetches during background preloading
     }
@@ -33,12 +34,21 @@ class ImagePreloader {
         try {
             const data = await this.nsfw.fetch(category);
             if (data && data.image && data.image.url) {
+                // If a fetch succeeds, assume the category is valid again
+                if (this.failedCategories.has(category)) {
+                    this.failedCategories.delete(category);
+                    console.log(`[Preloader] Category '${category}' is now preloading successfully.`);
+                }
                 this.caches.get(category).cache.push({ url: data.image.url, timestamp: Date.now() });
             } else {
-                 console.warn(`[Preloader] Received invalid data from API for category: ${category}`);
+                 throw new Error('API returned invalid or empty data.');
             }
         } catch (error) {
-            console.error(`[Preloader] Cache fetch failed for ${category}:`, error.message);
+            // If fetching fails, log it once and add to the failed set to prevent spam.
+            if (!this.failedCategories.has(category)) {
+                console.warn(`[Preloader] Disabling background preloading for category '${category}' due to a fetch error. It will be re-enabled automatically if a future fetch succeeds.`);
+                this.failedCategories.add(category);
+            }
         }
     }
 
@@ -47,6 +57,11 @@ class ImagePreloader {
      * @param {string} category - The NSFW category.
      */
     _triggerBackgroundPreload(category) {
+        // Do not attempt to preload for a category that is currently failing.
+        if (this.failedCategories.has(category)) {
+            return;
+        }
+
         this._initializeCategory(category);
         const categoryCache = this.caches.get(category);
 
@@ -58,11 +73,11 @@ class ImagePreloader {
             try {
                 while (categoryCache.cache.length < this.targetCacheSize) {
                     await this._fetchAndCache(category);
-                    // Add a small delay to avoid spamming the API
+                    if (this.failedCategories.has(category)) break; // Stop if fetch failed
                     await new Promise(resolve => setTimeout(resolve, this.preloadDelay));
                 }
             } catch (error) {
-                console.error(`[Preloader] Background preload error for ${category}:`, error.message);
+                console.error(`[Preloader] An unexpected error occurred during background preload for ${category}:`, error.message);
             } finally {
                 categoryCache.isPreloading = false;
             }
@@ -87,8 +102,7 @@ class ImagePreloader {
             return cachedImage.url;
         }
 
-        // If cache is empty, fetch a new image directly for a faster response
-        console.log(`[Preloader] Cache miss for ${category}. Performing direct fetch.`);
+        console.log(`[Preloader] Cache miss for '${category}'. Performing direct fetch.`);
         try {
             const data = await this.nsfw.fetch(category);
             if (!data || !data.image || !data.image.url) {
@@ -96,7 +110,7 @@ class ImagePreloader {
             }
             return data.image.url;
         } catch (error) {
-            console.error(`[Preloader] Direct fetch failed for ${category}:`, error.message);
+            console.error(`[Preloader] Direct fetch failed for '${category}':`, error.message);
             throw new Error(`Failed to fetch an image for the ${category} category.`);
         }
     }
@@ -107,13 +121,10 @@ class ImagePreloader {
      */
     async initialPreload(categories) {
         console.log(`[Preloader] Starting initial preload for ${categories.length} categories...`);
-        const preloadPromises = categories.map(category => {
-            this._initializeCategory(category);
-            // Fire off the preloading process for each category
+        // Dispatch all preloading tasks to run in the background without blocking startup.
+        for (const category of categories) {
             this._triggerBackgroundPreload(category);
-            return Promise.resolve(); // Don't block startup
-        });
-        await Promise.all(preloadPromises);
+        }
         console.log('[Preloader] Initial preload tasks have been dispatched.');
     }
 }
